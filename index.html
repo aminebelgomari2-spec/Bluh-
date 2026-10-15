@@ -13,6 +13,8 @@
     <!-- Three.js, GLTFLoader et OrbitControls -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- PeerJS (connexion P2P entre amis) -->
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -44,6 +46,7 @@
         .interactive {
             pointer-events: auto;
         }
+        input { user-select: text; -webkit-user-select: text; touch-action: auto; }
         /* Joystick tactile virtuel (fixe, visible sur mobile) */
         #joystick-base {
             width: 140px;
@@ -167,8 +170,44 @@
                     <span class="inline-block bg-slate-800 text-slate-500 text-sm font-semibold px-5 py-2 rounded-xl">Bientôt</span>
                 </div>
             </div>
+            <div class="mt-6 text-center">
+                <button onclick="openFriends()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600/60 text-slate-100 font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
+                    <i class="fa-solid fa-user-plus text-pink-400 mr-2"></i>Ajouter un ami
+                </button>
+            </div>
         </div>
     </div>
+
+    <!-- Fenêtre Amis -->
+    <div id="friends-modal" class="interactive fixed inset-0 bg-slate-950/80 backdrop-blur-md items-center justify-center p-4" style="display:none; z-index:70">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative" style="touch-action: pan-y">
+            <button onclick="closeFriends()" class="absolute top-5 right-5 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-xl">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h2 class="text-xl font-bold text-white mb-4"><i class="fa-solid fa-user-group text-pink-400 mr-2"></i>Amis</h2>
+
+            <div class="bg-slate-800/60 rounded-2xl p-4 text-center mb-5">
+                <p class="text-xs text-slate-400 mb-1">Ton code (donne-le à ton ami)</p>
+                <div class="flex items-center justify-center space-x-3">
+                    <span id="my-code" class="font-mono text-3xl font-extrabold tracking-widest text-white">······</span>
+                    <button onclick="copyCode()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 p-2 rounded-xl"><i class="fa-regular fa-copy"></i></button>
+                </div>
+                <p id="net-status" class="text-xs mt-2 text-slate-400">Connexion...</p>
+            </div>
+
+            <p class="text-xs text-slate-400 mb-2">Ajouter un ami avec son code (il doit avoir le jeu ouvert) :</p>
+            <div class="flex space-x-2">
+                <input id="friend-input" maxlength="6" placeholder="CODE" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')addFriendFromInput()" class="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 font-mono uppercase tracking-widest text-white placeholder-slate-500 text-sm">
+                <button onclick="addFriendFromInput()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 rounded-xl">Ajouter</button>
+            </div>
+            <p id="friend-msg" class="text-xs mt-2 min-h-[1rem]"></p>
+
+            <h3 class="font-bold text-slate-200 text-sm mt-4 mb-2">Mes amis</h3>
+            <div id="friend-list" class="space-y-2"></div>
+        </div>
+    </div>
+
+    <div id="toast" class="interactive fixed top-4 left-1/2 -translate-x-1/2 items-center bg-slate-800 border border-slate-600 text-white text-sm px-4 py-3 rounded-2xl shadow-2xl" style="display:none; z-index:90"></div>
 
     <!-- Modale Guide -->
     <div id="guide-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
@@ -252,6 +291,7 @@
             initThreeJS();
             setupControls();
             setupTouchJoystick();
+            initFriends();
             animate();
         });
 
@@ -263,6 +303,7 @@
 
         function startGame() {
             inMenu = false;
+            broadcast({ t: 'state', ingame: true });
             const m = document.getElementById('menu-overlay');
             m.style.opacity = '0';
             m.style.pointerEvents = 'none';
@@ -271,6 +312,7 @@
 
         function showMenu() {
             inMenu = true;
+            broadcast({ t: 'state', ingame: false });
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
             requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
@@ -505,6 +547,7 @@
         // Contrôles PC & Souris
         function setupControls() {
             window.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'INPUT') return;
                 if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = true;
                 if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = true;
                 if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = true;
@@ -637,6 +680,298 @@
             window.addEventListener('touchcancel', end);
         }
 
+        // ================= AMIS & MULTIJOUEUR P2P (PeerJS) =================
+        const PEER_PREFIX = 'rjs3d-';
+        const CODE_RE = /^[A-Z2-9]{6}$/;
+        const store = {
+            get(k, d = null) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+            set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+        };
+        let peer = null, myId = null, netOnline = false, pendingAdd = null, lastSend = 0, toastTimer = null;
+        let friends = [];
+        const conns = {}, states = {}, remotes = {}, trying = {};
+
+        function genCode() {
+            const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            let c = "";
+            for (let i = 0; i < 6; i++) c += a[Math.floor(Math.random() * a.length)];
+            return c;
+        }
+        const isFriend = (id) => friends.some(f => f.id === id);
+        const saveFriends = () => store.set('rjs_friends', JSON.stringify(friends));
+
+        function setNet(text, ok) {
+            const el = document.getElementById('net-status');
+            el.textContent = text;
+            el.className = 'text-xs mt-2 ' + (ok === true ? 'text-green-400' : ok === false ? 'text-red-400' : 'text-slate-400');
+        }
+        function setFriendMsg(text, ok) {
+            const el = document.getElementById('friend-msg');
+            el.textContent = text;
+            el.className = 'text-xs mt-2 min-h-[1rem] ' + (ok ? 'text-green-400' : 'text-red-400');
+        }
+        function toast(msg, label, fn) {
+            const t = document.getElementById('toast');
+            t.innerHTML = '';
+            const sp = document.createElement('span');
+            sp.textContent = msg;
+            t.appendChild(sp);
+            if (label) {
+                const b = document.createElement('button');
+                b.textContent = label;
+                b.className = 'ml-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-xl';
+                b.onclick = () => { fn(); t.style.display = 'none'; };
+                t.appendChild(b);
+            }
+            t.style.display = 'flex';
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { t.style.display = 'none'; }, 7000);
+        }
+
+        function initFriends() {
+            try { friends = JSON.parse(store.get('rjs_friends', '[]')).filter(f => f && CODE_RE.test(f.id)); } catch (e) { friends = []; }
+            const saved = store.get('rjs_myid');
+            myId = saved && CODE_RE.test(saved) ? saved : null;
+            document.getElementById('my-code').textContent = myId || '······';
+            renderFriends();
+            startPeer(0);
+            setInterval(() => {
+                if (peer && netOnline) friends.forEach(f => { if (!conns[f.id]) connectFriend(f.id, false); });
+            }, 15000);
+            window.addEventListener('beforeunload', () => { try { peer.destroy(); } catch (e) {} });
+        }
+
+        function startPeer(attempt) {
+            if (typeof Peer === 'undefined') { setNet("Réseau P2P indisponible (PeerJS non chargé)", false); return; }
+            const code = myId || genCode();
+            setNet("Connexion...", null);
+            peer = new Peer(PEER_PREFIX + code);
+            peer.on('open', () => {
+                myId = code;
+                store.set('rjs_myid', myId);   // ton code est enregistré dans le navigateur
+                document.getElementById('my-code').textContent = myId;
+                netOnline = true;
+                setNet("Connecté : ton ami peut t'ajouter avec ce code", true);
+                friends.forEach(f => connectFriend(f.id, false));
+            });
+            peer.on('connection', (c) => setupConn(c, false));
+            peer.on('disconnected', () => { netOnline = false; setNet("Reconnexion...", null); try { peer.reconnect(); } catch (e) {} });
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    try { peer.destroy(); } catch (e) {}
+                    if (myId) {
+                        // Ton code est gardé : on réessaie le même (ancienne session pas encore libérée)
+                        if (attempt < 8) { setNet("Code encore utilisé, nouvelle tentative...", null); setTimeout(() => startPeer(attempt + 1), 4000); }
+                        else setNet("Ce code est utilisé par un autre onglet. Ferme-le puis recharge.", false);
+                    } else if (attempt < 20) startPeer(attempt + 1); // nouveau code aléatoire
+                    return;
+                }
+                if (err.type === 'peer-unavailable') {
+                    const m = /rjs3d-([A-Z2-9]{6})/.exec(err.message || '');
+                    if (m) {
+                        delete trying[m[1]];
+                        if (pendingAdd === m[1]) { pendingAdd = null; setFriendMsg("Aucun joueur en ligne avec ce code. Ton ami doit avoir le jeu ouvert.", false); }
+                    }
+                    return;
+                }
+                if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(err.type)) {
+                    netOnline = false;
+                    setNet("Réseau indisponible (" + err.type + ")", false);
+                }
+            });
+        }
+
+        function connectFriend(fid, add) {
+            if (!peer || !netOnline) return;
+            const c0 = conns[fid];
+            if (c0 && c0.open) {
+                if (add) { c0.send({ t: 'hello', add: true }); addFriend(fid); setFriendMsg("Ami ajouté ✓", true); }
+                return;
+            }
+            if (trying[fid] && performance.now() - trying[fid] < 12000) return;
+            trying[fid] = performance.now();
+            setupConn(peer.connect(PEER_PREFIX + fid, { reliable: true, serialization: 'json' }), add);
+        }
+
+        function register(fid, c) {
+            conns[fid] = c;
+            try { c.send({ t: 'state', ingame: !inMenu }); } catch (e) {}
+            renderFriends();
+        }
+
+        function setupConn(c, add) {
+            const fid = String(c.peer || '').replace(PEER_PREFIX, '');
+            if (!CODE_RE.test(fid)) { c.close(); return; }
+            c.on('open', () => {
+                delete trying[fid];
+                c.send({ t: 'hello', add: !!add });
+                if (add) { addFriend(fid); if (pendingAdd === fid) pendingAdd = null; setFriendMsg("Ami ajouté ✓", true); }
+                if (isFriend(fid)) register(fid, c);
+                else setTimeout(() => { if (!isFriend(fid)) c.close(); }, 5000); // inconnu : doit s'annoncer comme ami
+            });
+            c.on('data', (d) => onData(fid, d, c));
+            c.on('close', () => {
+                if (conns[fid] === c) { delete conns[fid]; delete states[fid]; removeRemote(fid); renderFriends(); }
+            });
+            c.on('error', () => {});
+        }
+
+        function onData(fid, d, c) {
+            if (!d || typeof d.t !== 'string') return;
+            if (d.t === 'hello') {
+                if (d.add && !isFriend(fid)) {
+                    addFriend(fid);
+                    toast("Nouvel ami : " + fid);
+                    register(fid, c);
+                }
+                return;
+            }
+            if (conns[fid] !== c) return; // ignorer tout ce qui ne vient pas d'un ami
+            if (d.t === 'state') { states[fid] = !!d.ingame; if (!d.ingame) removeRemote(fid); renderFriends(); }
+            else if (d.t === 'pos' && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d);
+            else if (d.t === 'invite') toast(fid + " t'invite à jouer", "Rejoindre", () => { closeFriends(); startGame(); });
+            else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
+        }
+
+        function broadcast(msg) {
+            for (const id in conns) { try { if (conns[id].open) conns[id].send(msg); } catch (e) {} }
+        }
+
+        function addFriend(fid) {
+            if (fid === myId || isFriend(fid)) return;
+            friends.push({ id: fid });
+            saveFriends();
+            renderFriends();
+        }
+        function removeFriend(fid, silent) {
+            if (!silent && conns[fid] && conns[fid].open) { try { conns[fid].send({ t: 'unfriend' }); } catch (e) {} }
+            friends = friends.filter(f => f.id !== fid);
+            saveFriends();
+            if (conns[fid]) { try { conns[fid].close(); } catch (e) {} delete conns[fid]; }
+            delete states[fid];
+            removeRemote(fid);
+            renderFriends();
+        }
+
+        function addFriendFromInput() {
+            const input = document.getElementById('friend-input');
+            const code = input.value.trim().toUpperCase().replace(PEER_PREFIX.toUpperCase(), '');
+            if (!CODE_RE.test(code)) return setFriendMsg("Code invalide (6 caractères).", false);
+            if (code === myId) return setFriendMsg("C'est ton propre code !", false);
+            if (isFriend(code)) return setFriendMsg("Vous êtes déjà amis.", false);
+            if (!peer || !netOnline) return setFriendMsg("Pas connecté au réseau, réessaie dans un instant.", false);
+            pendingAdd = code;
+            setFriendMsg("Recherche de " + code + "...", true);
+            connectFriend(code, true);
+            setTimeout(() => {
+                if (pendingAdd === code) { pendingAdd = null; setFriendMsg("Pas de réponse. Ton ami doit avoir le jeu ouvert.", false); }
+            }, 9000);
+            input.value = '';
+        }
+
+        function joinFriend(fid) {
+            const c = conns[fid];
+            if (c && c.open) c.send({ t: 'invite' });
+            closeFriends();
+            startGame();
+        }
+        function openFriends() { document.getElementById('friends-modal').style.display = 'flex'; renderFriends(); }
+        function closeFriends() { document.getElementById('friends-modal').style.display = 'none'; }
+        function copyCode() {
+            try { navigator.clipboard.writeText(myId || ''); toast("Code copié"); } catch (e) { toast("Copie impossible, note ton code."); }
+        }
+
+        function renderFriends() {
+            const el = document.getElementById('friend-list');
+            if (!el) return;
+            if (!friends.length) { el.innerHTML = '<p class="text-xs text-slate-500">Aucun ami pour l\'instant.</p>'; return; }
+            el.innerHTML = friends.map(f => {
+                const on = !!(conns[f.id] && conns[f.id].open);
+                const st = on ? (states[f.id] ? 'En jeu' : 'En ligne') : 'Hors ligne';
+                return `<div class="flex items-center justify-between bg-slate-800/60 rounded-2xl px-4 py-3">
+                    <div class="flex items-center space-x-3">
+                        <span class="w-2.5 h-2.5 rounded-full ${on ? 'bg-green-400' : 'bg-slate-600'}"></span>
+                        <div><div class="font-mono font-bold tracking-widest text-white text-sm">${f.id}</div><div class="text-xs text-slate-400">${st}</div></div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="joinFriend('${f.id}')" ${on ? '' : 'disabled'} class="px-3 py-2 rounded-xl text-xs font-semibold ${on ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 text-slate-600'}">Rejoindre</button>
+                        <button onclick="removeFriend('${f.id}')" class="px-3 py-2 rounded-xl text-xs bg-slate-800 hover:bg-red-600/80 text-slate-300"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // ----- Avatars des amis dans la map -----
+        function createRemoteAvatar(fid) {
+            const g = new THREE.Group();
+            let h = 0;
+            for (const ch of fid) h = (h * 31 + ch.charCodeAt(0)) % 360;
+            const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(h / 360, 0.7, 0.55) });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047 });
+            const legMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+            const part = (w, hh, d, mat, x, y) => {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), mat);
+                m.position.set(x, y, 0);
+                m.castShadow = true;
+                g.add(m);
+            };
+            part(0.8, 1, 0.4, bodyMat, 0, 1.0);
+            part(0.6, 0.6, 0.6, headMat, 0, 1.7);
+            part(0.35, 0.8, 0.4, legMat, -0.22, 0.4);
+            part(0.35, 0.8, 0.4, legMat, 0.22, 0.4);
+            g.scale.setScalar(0.9);
+
+            const cv = document.createElement('canvas');
+            cv.width = 256; cv.height = 64;
+            const ctx = cv.getContext('2d');
+            ctx.fillStyle = 'rgba(15,23,42,0.75)';
+            ctx.fillRect(0, 0, 256, 64);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 36px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(fid, 128, 34);
+            const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false }));
+            label.scale.set(1.8, 0.45, 1);
+            label.position.y = 2.5;
+            g.add(label);
+            return g;
+        }
+        function updateRemote(fid, d) {
+            let r = remotes[fid];
+            if (!r) {
+                const g = createRemoteAvatar(fid);
+                g.position.set(d.x, d.y, d.z);
+                scene.add(g);
+                r = remotes[fid] = { group: g, target: new THREE.Vector3(), ry: 0, last: 0 };
+            }
+            r.target.set(d.x, d.y, d.z);
+            r.ry = d.ry;
+            r.last = performance.now();
+        }
+        function removeRemote(fid) {
+            const r = remotes[fid];
+            if (!r) return;
+            scene.remove(r.group);
+            delete remotes[fid];
+        }
+
+        function networkTick() {
+            const now = performance.now();
+            if (player && worldReady && !inMenu && now - lastSend > 70) {
+                lastSend = now;
+                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2) });
+            }
+            for (const id in remotes) {
+                const r = remotes[id];
+                if (now - r.last > 5000) { removeRemote(id); continue; }
+                r.group.position.lerp(r.target, 0.25);
+                let da = r.ry - r.group.rotation.y;
+                da = Math.atan2(Math.sin(da), Math.cos(da));
+                r.group.rotation.y += da * 0.25;
+            }
+        }
+
         // Hauteur du sol sous (x,z) en partant de fromY vers le bas
         function groundAt(x, z, fromY) {
             raycaster.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
@@ -748,6 +1083,7 @@
                 camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
             }
 
+            networkTick();
             renderer.render(scene, camera);
         }
     </script>
