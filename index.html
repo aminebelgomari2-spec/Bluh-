@@ -73,6 +73,16 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.35);
             pointer-events: none;
         }
+        /* Barre d'outils (hotbar) */
+        #hotbar { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); display: none; gap: 8px; z-index: 20; pointer-events: auto; }
+        #hotbar .slot { position: relative; width: 64px; height: 64px; border-radius: 14px; background: rgba(15,23,42,0.82); border: 2px solid rgba(255,255,255,0.25); color: #fff; font-size: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; touch-action: none; transition: transform .1s, border-color .1s; }
+        #hotbar .slot.active { border-color: #f472b6; box-shadow: 0 0 14px rgba(244,114,182,0.55); transform: translateY(-4px); }
+        #hotbar .slot .key { position: absolute; top: 3px; left: 7px; font-size: 10px; color: #94a3b8; font-weight: 700; }
+        #hotbar .slot .name { font-size: 9px; margin-top: 2px; color: #cbd5e1; }
+        @media (max-width: 480px) {
+            #joystick-base { left: 12px; }
+            #hotbar .slot { width: 52px; height: 52px; font-size: 20px; }
+        }
     </style>
 </head>
 <body>
@@ -178,6 +188,15 @@
         </div>
     </div>
 
+    <!-- Barre d'outils -->
+    <div id="hotbar" class="interactive">
+        <button id="slot-1" class="slot active" onclick="toggleRocket()" title="Lance-roquettes (touche 1)">
+            <span class="key">1</span>
+            <i class="fa-solid fa-rocket"></i>
+            <span class="name">Roquette</span>
+        </button>
+    </div>
+
     <!-- Fenêtre Amis -->
     <div id="friends-modal" class="interactive fixed inset-0 bg-slate-950/80 backdrop-blur-md items-center justify-center p-4" style="display:none; z-index:70">
         <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative" style="touch-action: pan-y">
@@ -204,6 +223,14 @@
 
             <h3 class="font-bold text-slate-200 text-sm mt-4 mb-2">Mes amis</h3>
             <div id="friend-list" class="space-y-2"></div>
+
+            <h3 class="font-bold text-slate-200 text-sm mt-6 mb-1">Sauvegarde</h3>
+            <p class="text-xs text-slate-500 mb-2">Ton code et tes amis sont déjà enregistrés dans ce navigateur. Copie cette sauvegarde pour les retrouver si tes données sont effacées ou sur un autre appareil.</p>
+            <div class="flex space-x-2 mb-2">
+                <button onclick="exportBackup()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2.5 rounded-xl">Copier ma sauvegarde</button>
+                <button onclick="importBackup()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2.5 rounded-xl">Restaurer</button>
+            </div>
+            <input id="backup-input" placeholder="Colle ta sauvegarde ici pour restaurer" autocomplete="off" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500">
         </div>
     </div>
 
@@ -292,6 +319,7 @@
             setupControls();
             setupTouchJoystick();
             initFriends();
+            setupFire();
             animate();
         });
 
@@ -304,6 +332,8 @@
         function startGame() {
             inMenu = false;
             broadcast({ t: 'state', ingame: true });
+            document.getElementById('hotbar').style.display = 'flex';
+            setRocketEquipped(true); // le lance-roquettes est donné en entrant dans le jeu
             const m = document.getElementById('menu-overlay');
             m.style.opacity = '0';
             m.style.pointerEvents = 'none';
@@ -313,6 +343,7 @@
         function showMenu() {
             inMenu = true;
             broadcast({ t: 'state', ingame: false });
+            document.getElementById('hotbar').style.display = 'none';
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
             requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
@@ -548,6 +579,7 @@
         function setupControls() {
             window.addEventListener('keydown', (e) => {
                 if (e.target.tagName === 'INPUT') return;
+                if (e.code === 'Digit1' && !inMenu) toggleRocket();
                 if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = true;
                 if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = true;
                 if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = true;
@@ -698,7 +730,8 @@
             return c;
         }
         const isFriend = (id) => friends.some(f => f.id === id);
-        const saveFriends = () => store.set('rjs_friends', JSON.stringify(friends));
+        const saveBackup = () => store.set('rjs_backup', JSON.stringify({ v: 1, id: myId, friends: friends.map(f => f.id) }));
+        const saveFriends = () => { store.set('rjs_friends', JSON.stringify(friends)); saveBackup(); };
 
         function setNet(text, ok) {
             const el = document.getElementById('net-status');
@@ -729,9 +762,25 @@
         }
 
         function initFriends() {
-            try { friends = JSON.parse(store.get('rjs_friends', '[]')).filter(f => f && CODE_RE.test(f.id)); } catch (e) { friends = []; }
+            // Les données sont dans le navigateur (localStorage), pas dans le fichier : une mise à jour du jeu ne les efface pas.
+            try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+            let listOk = false;
+            try {
+                const raw = store.get('rjs_friends');
+                if (raw !== null) { friends = JSON.parse(raw).filter(f => f && CODE_RE.test(f.id)); listOk = true; }
+            } catch (e) { friends = []; }
             const saved = store.get('rjs_myid');
             myId = saved && CODE_RE.test(saved) ? saved : null;
+            // Si une donnée manque, on la restaure depuis la copie interne
+            if (!listOk || !myId) {
+                try {
+                    const b = JSON.parse(store.get('rjs_backup', 'null'));
+                    if (b) {
+                        if (!myId && CODE_RE.test(b.id)) { myId = b.id; store.set('rjs_myid', myId); }
+                        if (!listOk && Array.isArray(b.friends)) { friends = b.friends.filter(id => CODE_RE.test(id)).map(id => ({ id })); saveFriends(); }
+                    }
+                } catch (e) {}
+            }
             document.getElementById('my-code').textContent = myId || '······';
             renderFriends();
             startPeer(0);
@@ -749,6 +798,7 @@
             peer.on('open', () => {
                 myId = code;
                 store.set('rjs_myid', myId);   // ton code est enregistré dans le navigateur
+                saveBackup();
                 document.getElementById('my-code').textContent = myId;
                 netOnline = true;
                 setNet("Connecté : ton ami peut t'ajouter avec ce code", true);
@@ -829,6 +879,10 @@
             if (conns[fid] !== c) return; // ignorer tout ce qui ne vient pas d'un ami
             if (d.t === 'state') { states[fid] = !!d.ingame; if (!d.ingame) removeRemote(fid); renderFriends(); }
             else if (d.t === 'pos' && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d);
+            else if (d.t === 'rocket' && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
+                const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
+                if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize());
+            }
             else if (d.t === 'invite') toast(fid + " t'invite à jouer", "Rejoindre", () => { closeFriends(); startGame(); });
             else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
         }
@@ -958,6 +1012,7 @@
 
         function networkTick() {
             const now = performance.now();
+            projectileTick(now);
             if (player && worldReady && !inMenu && now - lastSend > 70) {
                 lastSend = now;
                 broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2) });
@@ -970,6 +1025,149 @@
                 da = Math.atan2(Math.sin(da), Math.cos(da));
                 r.group.rotation.y += da * 0.25;
             }
+        }
+
+        // ================= LANCE-ROQUETTES =================
+        const ROCKET_SPEED = 30;      // unités par seconde
+        const ROCKET_COOLDOWN = 600;  // ms entre deux tirs
+        let rocketEquipped = false, lastShot = 0, lastTick = performance.now();
+        const rockets = [], explosions = [];
+        let rocketAssets = null;
+
+        function setRocketEquipped(v) {
+            rocketEquipped = v;
+            document.getElementById('slot-1').classList.toggle('active', v);
+        }
+        function toggleRocket() { setRocketEquipped(!rocketEquipped); }
+
+        function setupFire() {
+            // Un clic / une touche rapide (sans glisser) tire à cet endroit ; glisser fait tourner la caméra
+            const cv = renderer.domElement;
+            let down = null;
+            cv.addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                if (!down) down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() };
+            });
+            window.addEventListener('pointerup', (e) => {
+                if (!down || e.pointerId !== down.id) return;
+                const d = down;
+                down = null;
+                if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 10 && performance.now() - d.t < 400) fireAt(e.clientX, e.clientY);
+            });
+            window.addEventListener('pointercancel', (e) => { if (down && e.pointerId === down.id) down = null; });
+        }
+
+        function fireAt(cx, cy) {
+            if (!rocketEquipped || inMenu || !player || !worldReady) return;
+            const now = performance.now();
+            if (now - lastShot < ROCKET_COOLDOWN) return;
+            const ndc = new THREE.Vector2(cx / window.innerWidth * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
+            raycaster.setFromCamera(ndc, camera);
+            raycaster.far = 1000;
+            const hits = raycaster.intersectObjects(solids, false);
+            const target = hits.length ? hits[0].point.clone() : raycaster.ray.at(120, new THREE.Vector3());
+            const origin = player.position.clone();
+            origin.y += 1.3;
+            const dir = target.sub(origin);
+            if (dir.lengthSq() < 0.25) return;
+            dir.normalize();
+            lastShot = now;
+            origin.addScaledVector(dir, 0.8);
+            player.rotation.y = Math.atan2(dir.x, dir.z); // le perso se tourne vers la cible
+            spawnRocket(origin, dir);
+            broadcast({ t: 'rocket', x: +origin.x.toFixed(2), y: +origin.y.toFixed(2), z: +origin.z.toFixed(2), dx: +dir.x.toFixed(3), dy: +dir.y.toFixed(3), dz: +dir.z.toFixed(3) });
+        }
+
+        function spawnRocket(origin, dir) {
+            if (rockets.length > 30) return;
+            if (!rocketAssets) {
+                rocketAssets = {
+                    body: new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.6, 8), new THREE.MeshStandardMaterial({ color: 0xe5e7eb })),
+                    noseGeo: new THREE.ConeGeometry(0.08, 0.22, 8),
+                    noseMat: new THREE.MeshStandardMaterial({ color: 0xef4444 }),
+                    flameGeo: new THREE.SphereGeometry(0.12, 8, 8),
+                    flameMat: new THREE.MeshBasicMaterial({ color: 0xfb923c }),
+                    boom: new THREE.SphereGeometry(1, 16, 16)
+                };
+            }
+            const g = new THREE.Group();
+            g.add(new THREE.Mesh(rocketAssets.body.geometry, rocketAssets.body.material));
+            const nose = new THREE.Mesh(rocketAssets.noseGeo, rocketAssets.noseMat);
+            nose.position.y = 0.41;
+            const flame = new THREE.Mesh(rocketAssets.flameGeo, rocketAssets.flameMat);
+            flame.position.y = -0.35;
+            g.add(nose, flame);
+            g.position.copy(origin);
+            g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+            scene.add(g);
+            rockets.push({ mesh: g, dir: dir.clone(), life: 0 });
+        }
+
+        function explode(pos) {
+            const a = new THREE.Mesh(rocketAssets.boom, new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95 }));
+            const b = new THREE.Mesh(rocketAssets.boom, new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.5 }));
+            a.position.copy(pos);
+            b.position.copy(pos);
+            scene.add(a, b);
+            explosions.push({ a, b, t: 0 });
+        }
+
+        function projectileTick(now) {
+            const dt = Math.min(0.05, (now - lastTick) / 1000);
+            lastTick = now;
+            for (let i = rockets.length - 1; i >= 0; i--) {
+                const r = rockets[i];
+                const step = ROCKET_SPEED * dt;
+                r.life += dt;
+                raycaster.set(r.mesh.position, r.dir);
+                raycaster.far = step + 0.3;
+                const hit = raycaster.intersectObjects(solids, false);
+                if (hit.length || r.life > 4) {
+                    explode(hit.length ? hit[0].point : r.mesh.position);
+                    scene.remove(r.mesh);
+                    rockets.splice(i, 1);
+                } else {
+                    r.mesh.position.addScaledVector(r.dir, step);
+                }
+            }
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const e = explosions[i];
+                e.t += dt;
+                const k = e.t / 0.45;
+                if (k >= 1) {
+                    scene.remove(e.a, e.b);
+                    e.a.material.dispose();
+                    e.b.material.dispose();
+                    explosions.splice(i, 1);
+                    continue;
+                }
+                e.a.scale.setScalar(0.3 + 1.3 * k);
+                e.b.scale.setScalar(0.5 + 2.5 * k);
+                e.a.material.opacity = 0.95 * (1 - k);
+                e.b.material.opacity = 0.5 * (1 - k);
+            }
+        }
+
+        // ----- Sauvegarde manuelle (code + amis) -----
+        function exportBackup() {
+            if (!myId) return toast("Ton code n'est pas encore prêt.");
+            const txt = "RJS1:" + btoa(JSON.stringify({ id: myId, friends: friends.map(f => f.id) }));
+            try { navigator.clipboard.writeText(txt); toast("Sauvegarde copiée. Garde-la précieusement."); }
+            catch (e) { const i = document.getElementById('backup-input'); i.value = txt; i.select(); toast("Copie le texte manuellement."); }
+        }
+        function importBackup() {
+            const v = document.getElementById('backup-input').value.trim();
+            try {
+                if (!v.startsWith("RJS1:")) throw new Error("format");
+                const o = JSON.parse(atob(v.slice(5)));
+                if (!CODE_RE.test(o.id) || !Array.isArray(o.friends)) throw new Error("contenu");
+                const f = o.friends.filter(id => CODE_RE.test(id));
+                store.set('rjs_myid', o.id);
+                store.set('rjs_friends', JSON.stringify(f.map(id => ({ id }))));
+                store.set('rjs_backup', JSON.stringify({ v: 1, id: o.id, friends: f }));
+                toast("Sauvegarde restaurée, rechargement...");
+                setTimeout(() => location.reload(), 900);
+            } catch (e) { toast("Sauvegarde invalide."); }
         }
 
         // Hauteur du sol sous (x,z) en partant de fromY vers le bas
