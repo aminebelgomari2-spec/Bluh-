@@ -124,7 +124,7 @@
                     <i class="fa-solid fa-person-running"></i>
                 </div>
                 <h2 class="text-xl font-bold text-white mb-2">Chargement de la Carte 3D</h2>
-                <p class="text-slate-400 text-sm mb-6">Recherche de <code class="text-pink-400">map.glb</code> et <code class="text-pink-400">player.glb</code> à la racine...</p>
+                <p class="text-slate-400 text-sm mb-6">Recherche de <code class="text-pink-400">map.glb</code>, <code class="text-pink-400">map2.glb</code> et <code class="text-pink-400">player.glb</code> à la racine...</p>
                 <div class="w-full bg-slate-800 rounded-full h-2.5 mb-4 overflow-hidden">
                     <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-pink-500 h-2.5 rounded-full transition-all duration-300" style="width: 25%"></div>
                 </div>
@@ -163,7 +163,7 @@
                 <p class="text-slate-400 text-sm mt-1">Choisis ton jeu</p>
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
-                <button onclick="startGame()" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500/60 rounded-3xl p-4 shadow-xl transition active:scale-95">
+                <button onclick="startGame('map1')" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500/60 rounded-3xl p-4 shadow-xl transition active:scale-95">
                     <div class="h-28 rounded-2xl bg-gradient-to-br from-indigo-600 to-pink-500 flex items-center justify-center text-4xl text-white mb-4">
                         <i class="fa-solid fa-person-running"></i>
                     </div>
@@ -171,14 +171,14 @@
                     <p class="text-xs text-slate-400 mt-1 mb-4">Explore la map en 3D à la troisième personne.</p>
                     <span class="inline-block bg-indigo-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
                 </button>
-                <div class="bg-slate-900/60 border border-dashed border-slate-700/60 rounded-3xl p-4 opacity-60">
-                    <div class="h-28 rounded-2xl bg-slate-800 flex items-center justify-center text-4xl text-slate-500 mb-4">
-                        <i class="fa-solid fa-lock"></i>
+                <button onclick="startGame('map2')" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-700/60 hover:border-pink-500/60 rounded-3xl p-4 shadow-xl transition active:scale-95">
+                    <div class="h-28 rounded-2xl bg-gradient-to-br from-emerald-500 to-sky-500 flex items-center justify-center text-4xl text-white mb-4">
+                        <i class="fa-solid fa-map"></i>
                     </div>
-                    <h3 class="font-bold text-slate-300">Nouveau jeu</h3>
-                    <p class="text-xs text-slate-500 mt-1 mb-4">Bientôt disponible.</p>
-                    <span class="inline-block bg-slate-800 text-slate-500 text-sm font-semibold px-5 py-2 rounded-xl">Bientôt</span>
-                </div>
+                    <h3 class="font-bold text-white">Map 2</h3>
+                    <p class="text-xs text-slate-400 mt-1 mb-4">Une nouvelle map à explorer, avec le lance-roquettes.</p>
+                    <span class="inline-block bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
+                </button>
             </div>
             <div class="mt-6 text-center">
                 <button onclick="openFriends()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600/60 text-slate-100 font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
@@ -292,6 +292,16 @@
         let spawnPoint = new THREE.Vector3(0, 5, 0);
         let fallLimit = -25;
         const raycaster = new THREE.Raycaster();
+
+        // Liste des maps (fichier .glb à la racine du site)
+        const MAPS = {
+            map1: { file: 'map.glb',  name: 'Mini-Roblox 3D', short: 'Map 1', scale: MAP_SCALE },
+            map2: { file: 'map2.glb', name: 'Map 2',          short: 'Map 2', scale: MAP_SCALE }
+        };
+        let currentMap = 'map1';   // map active dans la scène
+        let activeGroup = null;
+        let playerPromise = null;
+        const mapCache = {}, mapLoading = {};   // chaque map n'est chargée qu'une fois
         
         // Commandes & physique
         const keys = { forward: false, backward: false, left: false, right: false };
@@ -323,26 +333,43 @@
             animate();
         });
 
+        let loadHideTimer = null;
         function dismissLoading() {
             const overlay = document.getElementById('loading-overlay');
             overlay.style.opacity = '0';
-            setTimeout(() => overlay.style.display = 'none', 500);
+            clearTimeout(loadHideTimer);
+            loadHideTimer = setTimeout(() => overlay.style.display = 'none', 500);
+        }
+        function showLoading() {
+            const o = document.getElementById('loading-overlay');
+            clearTimeout(loadHideTimer);
+            o.style.display = 'flex';
+            requestAnimationFrame(() => { o.style.opacity = '1'; });
+        }
+        function setLoading(msg, pct, isError) {
+            document.getElementById('progress-bar').style.width = pct + '%';
+            const d = document.getElementById('loading-details');
+            d.textContent = msg;
+            d.className = 'text-xs mb-6 ' + (isError ? 'text-red-400' : 'text-slate-400');
         }
 
-        function startGame() {
+        function startGame(mapId) {
+            if (!MAPS[mapId]) mapId = currentMap;
             inMenu = false;
-            broadcast({ t: 'state', ingame: true });
             document.getElementById('hotbar').style.display = 'flex';
-            setRocketEquipped(true); // le lance-roquettes est donné en entrant dans le jeu
+            setRocketEquipped(true); // le lance-roquettes est donné en entrant dans une map
             const m = document.getElementById('menu-overlay');
             m.style.opacity = '0';
             m.style.pointerEvents = 'none';
             setTimeout(() => { if (!inMenu) m.style.display = 'none'; }, 350);
+            enterMap(mapId).then(() => {
+                if (!inMenu) broadcast({ t: 'state', ingame: true, map: currentMap });
+            });
         }
 
         function showMenu() {
             inMenu = true;
-            broadcast({ t: 'state', ingame: false });
+            broadcast({ t: 'state', ingame: false, map: currentMap });
             document.getElementById('hotbar').style.display = 'none';
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
@@ -390,156 +417,176 @@
         }
 
         function loadAssets() {
-            const loader = new THREE.GLTFLoader();
-            const progressBar = document.getElementById('progress-bar');
-            const statusText = document.getElementById('status-text');
-            const details = document.getElementById('loading-details');
+            playerPromise = loadPlayer();
+            enterMap('map1'); // la map 1 se charge pendant que le menu est affiché
+        }
 
-            let mapLoaded = false;
-            let playerLoaded = false;
-            let mapFailed = false;
+        // Charge (une seule fois) le .glb d'une map et prépare collisions, spawn, taille
+        function loadMap(id) {
+            if (mapCache[id]) return Promise.resolve(mapCache[id]);
+            if (mapLoading[id]) return mapLoading[id];
+            const info = MAPS[id];
+            setLoading("Chargement de " + info.file + "...", 30, false);
+            mapLoading[id] = new Promise((resolve) => {
+                new THREE.GLTFLoader().load(
+                    info.file,
+                    (gltf) => {
+                        try { resolve(prepareMap(id, gltf.scene)); }
+                        catch (e) { resolve(failMap(id, e)); }
+                    },
+                    (ev) => { if (ev.lengthComputable && ev.total) setLoading("Chargement de " + info.file + "...", 30 + 50 * ev.loaded / ev.total, false); },
+                    (err) => resolve(failMap(id, err))
+                );
+            }).then((d) => { mapCache[id] = d; delete mapLoading[id]; return d; });
+            return mapLoading[id];
+        }
 
-            function checkAllLoaded() {
-                if (mapLoaded && playerLoaded) {
-                    scene.updateMatrixWorld(true);
-                    placePlayerAtSpawn();
-                    worldReady = true;
-                    progressBar.style.width = '100%';
-                    if (!mapFailed) {
-                        details.textContent = "Tous les modèles sont chargés !";
-                        statusText.textContent = "Jeu prêt (Modèles GLB actifs)";
-                        setTimeout(dismissLoading, 700);
-                    }
+        function prepareMap(id, model) {
+            model.scale.setScalar(MAPS[id].scale);
+            const mapSolids = [];
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => { if (m) m.side = THREE.DoubleSide; });
+                    mapSolids.push(child);
                 }
+            });
+            model.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+
+            // Point d'apparition : objet nommé "spawn" sinon premier sol trouvé près du centre
+            const spawn = new THREE.Vector3();
+            let spawnObj = null;
+            model.traverse((o) => { if (!spawnObj && /spawn/i.test(o.name)) spawnObj = o; });
+            if (spawnObj) {
+                const sp = new THREE.Vector3().setFromMatrixPosition(spawnObj.matrixWorld);
+                spawn.set(sp.x, sp.y + 3, sp.z);
+            } else {
+                const prev = solids;
+                solids = mapSolids;
+                spawn.copy(findGroundSpawn(box));
+                solids = prev;
             }
+            console.log(MAPS[id].file + ' chargé. Taille:', size, 'Spawn:', spawn);
+            setLoading(MAPS[id].file + " chargé (taille " + size.x.toFixed(0) + " × " + size.y.toFixed(0) + " × " + size.z.toFixed(0) + ").", 85, false);
+            return { group: model, solids: mapSolids, spawn, fallLimit: box.min.y - 25, far: Math.max(1000, size.length() * 3), failed: false };
+        }
 
-            // 1. Charger map.glb
-            loader.load(
-                'map.glb',
-                (gltf) => {
-                    mapModel = gltf.scene;
-                    mapModel.scale.setScalar(MAP_SCALE);
-                    mapModel.traverse((child) => {
-                        if (child.isMesh) {
-                            child.castShadow = true;
-                            child.receiveShadow = true;
-                            // Visible et solide des deux côtés
-                            (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => { if (m) m.side = THREE.DoubleSide; });
-                            solids.push(child);
-                        }
-                    });
-                    scene.add(mapModel);
-                    scene.updateMatrixWorld(true);
+        function failMap(id, err) {
+            console.error("Échec du chargement de " + MAPS[id].file + " :", err);
+            const p = createProceduralMap();
+            const reason = location.protocol === 'file:'
+                ? "page ouverte en file:// (le navigateur bloque le chargement). Utilise GitHub Pages ou un serveur local."
+                : "fichier introuvable (404 / nom ou majuscules différents), pointeur Git LFS, fichier corrompu ou compression Draco non supportée.";
+            setLoading("⚠ " + MAPS[id].file + " NON chargé : " + reason, 85, true);
+            document.getElementById('status-text').textContent = "Map de secours (" + MAPS[id].file + " non chargé)";
+            return { group: p.group, solids: p.solids, spawn: new THREE.Vector3(0, 3, 0), fallLimit: -25, far: 1000, failed: true };
+        }
 
-                    // Adapter caméra / brouillard / chute à la taille réelle de la map
-                    const mapBox = new THREE.Box3().setFromObject(mapModel);
-                    const mapSize = mapBox.getSize(new THREE.Vector3());
-                    camera.far = Math.max(1000, mapSize.length() * 3);
-                    camera.updateProjectionMatrix();
-                    scene.fog = null;
-                    fallLimit = mapBox.min.y - 25;
+        // Met la map dans la scène (retire l'ancienne)
+        function activateMap(id) {
+            const d = mapCache[id];
+            if (activeGroup !== d.group) {
+                if (activeGroup) scene.remove(activeGroup);
+                scene.add(d.group);
+                activeGroup = d.group;
+                rockets.splice(0).forEach(r => scene.remove(r.mesh));
+                explosions.splice(0).forEach(e => scene.remove(e.a, e.b));
+                Object.keys(remotes).forEach(removeRemote);
+            }
+            solids = d.solids;
+            fallLimit = d.fallLimit;
+            spawnPoint.copy(d.spawn);
+            camera.far = d.far;
+            camera.updateProjectionMatrix();
+            scene.fog = null;
+            currentMap = id;
+            scene.updateMatrixWorld(true);
+        }
 
-                    // Point d'apparition : objet nommé "spawn" sinon premier sol trouvé près du centre
-                    let spawnObj = null;
-                    mapModel.traverse((o) => { if (!spawnObj && /spawn/i.test(o.name)) spawnObj = o; });
-                    if (spawnObj) {
-                        const sp = new THREE.Vector3().setFromMatrixPosition(spawnObj.matrixWorld);
-                        spawnPoint.set(sp.x, sp.y + 3, sp.z);
-                    } else {
-                        spawnPoint.copy(findGroundSpawn(mapBox));
+        function enterMap(id) {
+            const known = mapCache[id];
+            if (!known || activeGroup !== known.group) worldReady = false;
+            if (!known) showLoading();
+            return Promise.all([loadMap(id), playerPromise]).then(([d]) => {
+                const changed = activeGroup !== d.group;
+                activateMap(id);
+                if (changed) placePlayerAtSpawn();
+                worldReady = true;
+                if (!d.failed) {
+                    setLoading("Prêt !", 100, false);
+                    document.getElementById('status-text').textContent = "Jeu prêt (" + MAPS[id].short + ")";
+                    setTimeout(dismissLoading, 500);
+                }
+                return d;
+            });
+        }
+
+        function loadPlayer() {
+            return new Promise((resolve) => {
+                new THREE.GLTFLoader().load(
+                    'player.glb',
+                    (gltf) => {
+                        const model = gltf.scene;
+                        model.traverse((child) => {
+                            if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; }
+                        });
+                        model.rotation.y = PLAYER_FACING_OFFSET; // corrige le sens dans lequel le modèle regarde
+                        // Normaliser : hauteur fixe, centré en x/z, pieds exactement à y = 0
+                        const PLAYER_HEIGHT = 1.8;
+                        model.updateMatrixWorld(true);
+                        let pBox = new THREE.Box3().setFromObject(model);
+                        const pSize = pBox.getSize(new THREE.Vector3());
+                        if (pSize.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / pSize.y);
+                        model.updateMatrixWorld(true);
+                        pBox = new THREE.Box3().setFromObject(model);
+                        const pCenter = pBox.getCenter(new THREE.Vector3());
+                        model.position.x -= pCenter.x;
+                        model.position.z -= pCenter.z;
+                        model.position.y -= pBox.min.y;
+                        player = new THREE.Group();
+                        player.add(model);
+                        player.position.set(0, 5, 0);
+                        scene.add(player);
+                        resolve();
+                    },
+                    undefined,
+                    () => {
+                        console.warn("player.glb introuvable à la racine. Création de l'avatar Roblox par défaut.");
+                        createProceduralPlayer();
+                        resolve();
                     }
-                    console.log('map.glb chargé. Taille:', mapSize, 'Spawn:', spawnPoint);
-
-                    mapLoaded = true;
-                    progressBar.style.width = '60%';
-                    details.textContent = "map.glb chargé (taille " + mapSize.x.toFixed(0) + " × " + mapSize.y.toFixed(0) + " × " + mapSize.z.toFixed(0) + ").";
-                    checkAllLoaded();
-                },
-                undefined,
-                (error) => {
-                    console.error("Échec du chargement de map.glb :", error);
-                    mapFailed = true;
-                    createProceduralMap();
-                    mapLoaded = true;
-                    progressBar.style.width = '60%';
-                    const reason = location.protocol === 'file:'
-                        ? "page ouverte en file:// (le navigateur bloque le chargement). Utilise GitHub Pages ou un serveur local."
-                        : "fichier introuvable (404 / nom ou majuscules différents), pointeur Git LFS, fichier corrompu ou compression Draco non supportée.";
-                    details.textContent = "⚠ map.glb NON chargé : " + reason;
-                    details.className = "text-xs text-red-400 mb-6";
-                    statusText.textContent = "Map de secours (map.glb non chargé)";
-                    checkAllLoaded();
-                }
-            );
-
-            // 2. Charger player.glb
-            loader.load(
-                'player.glb',
-                (gltf) => {
-                    const model = gltf.scene;
-                    model.traverse((child) => {
-                        if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; }
-                    });
-                    model.rotation.y = PLAYER_FACING_OFFSET; // corrige le sens dans lequel le modèle regarde
-                    // Normaliser : hauteur fixe, centré en x/z, pieds exactement à y = 0
-                    const PLAYER_HEIGHT = 1.8;
-                    model.updateMatrixWorld(true);
-                    let pBox = new THREE.Box3().setFromObject(model);
-                    const pSize = pBox.getSize(new THREE.Vector3());
-                    if (pSize.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / pSize.y);
-                    model.updateMatrixWorld(true);
-                    pBox = new THREE.Box3().setFromObject(model);
-                    const pCenter = pBox.getCenter(new THREE.Vector3());
-                    model.position.x -= pCenter.x;
-                    model.position.z -= pCenter.z;
-                    model.position.y -= pBox.min.y;
-                    player = new THREE.Group();
-                    player.add(model);
-                    player.position.set(0, 5, 0);
-                    scene.add(player);
-                    playerLoaded = true;
-                    checkAllLoaded();
-                },
-                undefined,
-                (error) => {
-                    console.warn("player.glb introuvable à la racine. Création de l'avatar Roblox par défaut.");
-                    createProceduralPlayer();
-                    playerLoaded = true;
-                    checkAllLoaded();
-                }
-            );
+                );
+            });
         }
 
         // Monde procédural de secours (Garanti sans chute)
         function createProceduralMap() {
-            solids = [];
+            const group = new THREE.Group();
+            const mapSolids = [];
 
-            // Grand sol vert/bleu style Roblox
-            const floorGeo = new THREE.BoxGeometry(80, 2, 80);
-            const floorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
-            const floor = new THREE.Mesh(floorGeo, floorMat);
+            const floor = new THREE.Mesh(new THREE.BoxGeometry(80, 2, 80), new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 }));
             floor.position.set(0, -1, 0);
             floor.receiveShadow = true;
-            scene.add(floor);
-            solids.push(floor);
+            group.add(floor);
+            mapSolids.push(floor);
 
-            // Quelques blocs d'obstacles sur lesquels monter
             const boxMat = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.4 });
             for (let i = 0; i < 15; i++) {
                 const w = Math.random() * 4 + 2;
                 const h = Math.random() * 4 + 1;
                 const d = Math.random() * 4 + 2;
-                const boxGeo = new THREE.BoxGeometry(w, h, d);
-                const box = new THREE.Mesh(boxGeo, boxMat);
-
-                const x = (Math.random() - 0.5) * 50;
-                const z = (Math.random() - 0.5) * 50;
-                box.position.set(x, h / 2, z);
+                const box = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), boxMat);
+                box.position.set((Math.random() - 0.5) * 50, h / 2, (Math.random() - 0.5) * 50);
                 box.castShadow = true;
                 box.receiveShadow = true;
-                scene.add(box);
-                solids.push(box);
+                group.add(box);
+                mapSolids.push(box);
             }
+            group.updateMatrixWorld(true);
+            return { group, solids: mapSolids };
         }
 
         // Avatar Roblox par défaut
@@ -845,7 +892,7 @@
 
         function register(fid, c) {
             conns[fid] = c;
-            try { c.send({ t: 'state', ingame: !inMenu }); } catch (e) {}
+            try { c.send({ t: 'state', ingame: !inMenu, map: currentMap }); } catch (e) {}
             renderFriends();
         }
 
@@ -877,13 +924,13 @@
                 return;
             }
             if (conns[fid] !== c) return; // ignorer tout ce qui ne vient pas d'un ami
-            if (d.t === 'state') { states[fid] = !!d.ingame; if (!d.ingame) removeRemote(fid); renderFriends(); }
-            else if (d.t === 'pos' && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d);
-            else if (d.t === 'rocket' && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
+            if (d.t === 'state') { states[fid] = d.ingame ? (MAPS[d.map] ? d.map : 'map1') : null; if (!d.ingame || states[fid] !== currentMap) removeRemote(fid); renderFriends(); }
+            else if (d.t === 'pos') { if ((d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d); else removeRemote(fid); }
+            else if (d.t === 'rocket' && (d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
                 const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
                 if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize());
             }
-            else if (d.t === 'invite') toast(fid + " t'invite à jouer", "Rejoindre", () => { closeFriends(); startGame(); });
+            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (MAPS[d.map] ? MAPS[d.map].short : 'Map 1') + ")", "Rejoindre", () => { closeFriends(); startGame(MAPS[d.map] ? d.map : 'map1'); });
             else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
         }
 
@@ -925,9 +972,10 @@
 
         function joinFriend(fid) {
             const c = conns[fid];
-            if (c && c.open) c.send({ t: 'invite' });
+            const mapId = MAPS[states[fid]] ? states[fid] : currentMap; // on rejoint la map où l'ami joue
+            if (c && c.open) c.send({ t: 'invite', map: mapId });
             closeFriends();
-            startGame();
+            startGame(mapId);
         }
         function openFriends() { document.getElementById('friends-modal').style.display = 'flex'; renderFriends(); }
         function closeFriends() { document.getElementById('friends-modal').style.display = 'none'; }
@@ -941,7 +989,7 @@
             if (!friends.length) { el.innerHTML = '<p class="text-xs text-slate-500">Aucun ami pour l\'instant.</p>'; return; }
             el.innerHTML = friends.map(f => {
                 const on = !!(conns[f.id] && conns[f.id].open);
-                const st = on ? (states[f.id] ? 'En jeu' : 'En ligne') : 'Hors ligne';
+                const st = on ? (states[f.id] ? 'En jeu · ' + (MAPS[states[f.id]] ? MAPS[states[f.id]].short : '') : 'En ligne') : 'Hors ligne';
                 return `<div class="flex items-center justify-between bg-slate-800/60 rounded-2xl px-4 py-3">
                     <div class="flex items-center space-x-3">
                         <span class="w-2.5 h-2.5 rounded-full ${on ? 'bg-green-400' : 'bg-slate-600'}"></span>
@@ -1015,7 +1063,7 @@
             projectileTick(now);
             if (player && worldReady && !inMenu && now - lastSend > 70) {
                 lastSend = now;
-                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2) });
+                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap });
             }
             for (const id in remotes) {
                 const r = remotes[id];
@@ -1075,7 +1123,7 @@
             origin.addScaledVector(dir, 0.8);
             player.rotation.y = Math.atan2(dir.x, dir.z); // le perso se tourne vers la cible
             spawnRocket(origin, dir);
-            broadcast({ t: 'rocket', x: +origin.x.toFixed(2), y: +origin.y.toFixed(2), z: +origin.z.toFixed(2), dx: +dir.x.toFixed(3), dy: +dir.y.toFixed(3), dz: +dir.z.toFixed(3) });
+            broadcast({ t: 'rocket', x: +origin.x.toFixed(2), y: +origin.y.toFixed(2), z: +origin.z.toFixed(2), dx: +dir.x.toFixed(3), dy: +dir.y.toFixed(3), dz: +dir.z.toFixed(3), m: currentMap });
         }
 
         function spawnRocket(origin, dir) {
