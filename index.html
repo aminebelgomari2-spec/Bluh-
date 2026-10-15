@@ -93,6 +93,10 @@
             </div>
 
             <div class="flex items-center space-x-2">
+                <button onclick="showMenu()" class="interactive bg-slate-800/90 hover:bg-slate-700 border border-slate-600/60 text-slate-200 px-4 py-2.5 rounded-2xl font-semibold text-xs md:text-sm flex items-center space-x-2 shadow-lg transition active:scale-95">
+                    <i class="fa-solid fa-bars text-pink-400"></i>
+                    <span>Menu</span>
+                </button>
                 <button onclick="toggleGuide()" class="interactive bg-slate-800/90 hover:bg-slate-700 border border-slate-600/60 text-slate-200 px-4 py-2.5 rounded-2xl font-semibold text-xs md:text-sm flex items-center space-x-2 shadow-lg transition active:scale-95">
                     <i class="fa-solid fa-circle-question text-indigo-400"></i>
                     <span>Guide GitHub & 3D</span>
@@ -133,6 +137,37 @@
             </div>
         </div>
 
+    </div>
+
+    <!-- Menu de sélection des jeux -->
+    <div id="menu-overlay" class="interactive fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 transition-opacity duration-300" style="z-index:60">
+        <div class="w-full max-w-2xl">
+            <div class="text-center mb-8">
+                <div class="bg-indigo-600 text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-lg shadow-indigo-600/30">
+                    <i class="fa-solid fa-cube"></i>
+                </div>
+                <h1 class="text-3xl font-extrabold tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">ROBLOX-JS 3D</h1>
+                <p class="text-slate-400 text-sm mt-1">Choisis ton jeu</p>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+                <button onclick="startGame()" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-700/60 hover:border-indigo-500/60 rounded-3xl p-4 shadow-xl transition active:scale-95">
+                    <div class="h-28 rounded-2xl bg-gradient-to-br from-indigo-600 to-pink-500 flex items-center justify-center text-4xl text-white mb-4">
+                        <i class="fa-solid fa-person-running"></i>
+                    </div>
+                    <h3 class="font-bold text-white">Mini-Roblox 3D</h3>
+                    <p class="text-xs text-slate-400 mt-1 mb-4">Explore la map en 3D à la troisième personne.</p>
+                    <span class="inline-block bg-indigo-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
+                </button>
+                <div class="bg-slate-900/60 border border-dashed border-slate-700/60 rounded-3xl p-4 opacity-60">
+                    <div class="h-28 rounded-2xl bg-slate-800 flex items-center justify-center text-4xl text-slate-500 mb-4">
+                        <i class="fa-solid fa-lock"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-300">Nouveau jeu</h3>
+                    <p class="text-xs text-slate-500 mt-1 mb-4">Bientôt disponible.</p>
+                    <span class="inline-block bg-slate-800 text-slate-500 text-sm font-semibold px-5 py-2 rounded-xl">Bientôt</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modale Guide -->
@@ -185,6 +220,9 @@
         let player, mapModel;
         let solids = []; // Meshes solides (détection par raycast)
         let worldReady = false;
+        let inMenu = true;
+        const MAP_SCALE = 0.5;                    // 1 = taille d'origine, plus petit = map plus petite
+        const PLAYER_FACING_OFFSET = Math.PI / 2; // si le perso regarde encore de travers : 0, Math.PI/2, Math.PI ou -Math.PI/2
         let spawnPoint = new THREE.Vector3(0, 5, 0);
         let fallLimit = -25;
         const raycaster = new THREE.Raycaster();
@@ -195,7 +233,7 @@
         let velocityY = 0;
         const gravity = -0.012;
         const jumpForce = 0.28;
-        const playerSpeed = 0.08;
+        const playerSpeed = 0.16;   // vitesse du joueur
         let isGrounded = false;
 
         // Caméra
@@ -221,6 +259,21 @@
             const overlay = document.getElementById('loading-overlay');
             overlay.style.opacity = '0';
             setTimeout(() => overlay.style.display = 'none', 500);
+        }
+
+        function startGame() {
+            inMenu = false;
+            const m = document.getElementById('menu-overlay');
+            m.style.opacity = '0';
+            m.style.pointerEvents = 'none';
+            setTimeout(() => { if (!inMenu) m.style.display = 'none'; }, 350);
+        }
+
+        function showMenu() {
+            inMenu = true;
+            const m = document.getElementById('menu-overlay');
+            m.style.display = 'flex';
+            requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
         }
 
         function toggleGuide() {
@@ -292,6 +345,7 @@
                 'map.glb',
                 (gltf) => {
                     mapModel = gltf.scene;
+                    mapModel.scale.setScalar(MAP_SCALE);
                     mapModel.traverse((child) => {
                         if (child.isMesh) {
                             child.castShadow = true;
@@ -353,6 +407,7 @@
                     model.traverse((child) => {
                         if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; }
                     });
+                    model.rotation.y = PLAYER_FACING_OFFSET; // corrige le sens dans lequel le modèle regarde
                     // Normaliser : hauteur fixe, centré en x/z, pieds exactement à y = 0
                     const PLAYER_HEIGHT = 1.8;
                     model.updateMatrixWorld(true);
@@ -643,6 +698,8 @@
                     inputX += joystickData.x;
                     inputZ += joystickData.y;
                 }
+
+                if (inMenu) { inputX = 0; inputZ = 0; cameraAngleX += 0.004; }
 
                 if (inputX !== 0 || inputZ !== 0) {
                     const forward = new THREE.Vector3(-Math.sin(cameraAngleX), 0, -Math.cos(cameraAngleX));
