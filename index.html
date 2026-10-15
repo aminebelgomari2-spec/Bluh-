@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mini-Roblox 3D Mobile & PC</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Police Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome pour les icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js, GLTFLoader et OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .interactive {
+            pointer-events: auto;
+        }
+        /* Joystick tactile virtuel */
+        #joystick-base {
+            width: 130px;
+            height: 130px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            position: absolute;
+            bottom: 40px;
+            left: 40px;
+            display: none;
+            touch-action: none;
+        }
+        #joystick-stick {
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            position: absolute;
+            top: 40px;
+            left: 40px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Canvas 3D -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Interface Utilisateur -->
+    <div class="ui-layer flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- En-tête -->
+        <div class="flex justify-between items-center">
+            <div class="flex items-center space-x-3 bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-700/50 shadow-xl interactive">
+                <div class="bg-indigo-600 text-white p-2 rounded-xl font-bold">
+                    <i class="fa-solid fa-cube text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-sm md:text-base tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">ROBLOX-JS 3D</h1>
+                    <p class="text-xs text-slate-400" id="status-text">Initialisation du monde...</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button onclick="toggleGuide()" class="interactive bg-slate-800/90 hover:bg-slate-700 border border-slate-600/60 text-slate-200 px-4 py-2.5 rounded-2xl font-semibold text-xs md:text-sm flex items-center space-x-2 shadow-lg transition active:scale-95">
+                    <i class="fa-solid fa-circle-question text-indigo-400"></i>
+                    <span>Guide GitHub & 3D</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Écran de chargement / Statut -->
+        <div id="loading-overlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center z-30 transition-opacity duration-500 interactive">
+            <div class="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl mx-4">
+                <div class="w-16 h-16 bg-indigo-600/20 text-indigo-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-2xl animate-bounce">
+                    <i class="fa-solid fa-person-running"></i>
+                </div>
+                <h2 class="text-xl font-bold text-white mb-2">Chargement de la Carte 3D</h2>
+                <p class="text-slate-400 text-sm mb-6">Recherche de <code class="text-pink-400">map.glb</code> et <code class="text-pink-400">player.glb</code> à la racine...</p>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 mb-4 overflow-hidden">
+                    <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-pink-500 h-2.5 rounded-full transition-all duration-300" style="width: 25%"></div>
+                </div>
+                <p id="loading-details" class="text-xs text-slate-400 mb-6">Chargement en cours...</p>
+                <button onclick="dismissLoading()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-2xl shadow-lg shadow-indigo-600/30 transition active:scale-95">
+                    Entrer dans le jeu
+                </button>
+            </div>
+        </div>
+
+        <!-- Contrôles Mobiles -->
+        <div class="flex justify-between items-end pb-4 md:pb-0">
+            <!-- Joystick tactile -->
+            <div id="joystick-container" class="interactive relative w-32 h-32 hidden">
+                <div id="joystick-base">
+                    <div id="joystick-stick"></div>
+                </div>
+            </div>
+
+            <!-- Bouton de saut -->
+            <div class="flex flex-col space-y-3 ml-auto">
+                <button id="jump-btn" class="interactive w-16 h-16 md:w-20 md:h-20 bg-indigo-600/90 hover:bg-indigo-500 active:bg-indigo-700 border-2 border-indigo-400/50 rounded-full flex items-center justify-center text-white shadow-2xl transition active:scale-90">
+                    <i class="fa-solid fa-angles-up text-xl md:text-2xl"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modale Guide -->
+    <div id="guide-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl relative">
+            <button onclick="toggleGuide()" class="absolute top-6 right-6 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-xl">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="flex items-center space-x-3 mb-6">
+                <div class="bg-pink-600/20 text-pink-400 p-3 rounded-2xl">
+                    <i class="fa-solid fa-globe text-xl"></i>
+                </div>
+                <div>
+                    <h2 class="text-xl font-bold text-white">Guide GitHub Pages & Fichiers 3D</h2>
+                    <p class="text-xs text-slate-400">Pourquoi le joueur ne tombe plus à travers la map</p>
+                </div>
+            </div>
+
+            <div class="space-y-4 text-slate-300 text-sm leading-relaxed">
+                <div class="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
+                    <h3 class="font-bold text-indigo-400 mb-2">1. Structure exacte à la racine de GitHub</h3>
+                    <p class="text-xs text-slate-400 mb-2">Vos fichiers doivent se trouver au même niveau que <code class="text-pink-400">index.html</code> :</p>
+                    <div class="bg-slate-950 p-3 rounded-xl font-mono text-xs text-slate-300 space-y-1">
+                        <div>📁 votre-depot/</div>
+                        <div class="pl-4">├── index.html</div>
+                        <div class="pl-4">├── map.glb <span class="text-green-400">(Votre carte 3D)</span></div>
+                        <div class="pl-4">├── player.glb <span class="text-green-400">(Votre avatar 3D optionnel)</span></div>
+                    </div>
+                </div>
+                <div class="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
+                    <h3 class="font-bold text-indigo-400 mb-2">2. Système de Sécurité Anti-Chute</h3>
+                    <p class="text-xs text-slate-400">
+                        Si <code class="text-pink-400">map.glb</code> n'est pas encore téléchargé ou introuvable, le script crée instantanément un monde procédural de blocs solides avec des plateformes. Le joueur est toujours replacé en toute sécurité sur le sol le plus haut.
+                    </p>
+                </div>
+            </div>
+
+            <div class="mt-6 text-center">
+                <button onclick="toggleGuide()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-8 py-3 rounded-2xl shadow-lg transition active:scale-95">
+                    Fermer le guide
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script principal du Jeu -->
+    <script>
+        let scene, camera, renderer;
+        let player, mapModel;
+        let colliders = []; // Tableaux de boîtes de collision
+        
+        // Commandes & physique
+        const keys = { forward: false, backward: false, left: false, right: false };
+        let moveDirection = new THREE.Vector3();
+        let velocityY = 0;
+        const gravity = -0.012;
+        const jumpForce = 0.28;
+        const playerSpeed = 0.08;
+        let isGrounded = false;
+
+        // Caméra
+        let cameraAngleX = 0;
+        let cameraAngleY = 0.6;
+        let cameraDistance = 7;
+        let isDragging = false;
+        let prevMousePos = { x: 0, y: 0 };
+
+        // Joystick mobile
+        let joystickActive = false;
+        let joystickData = { x: 0, y: 0 };
+        let joystickCenter = { x: 0, y: 0 };
+
+        window.addEventListener('load', () => {
+            initThreeJS();
+            setupControls();
+            setupTouchJoystick();
+            animate();
+        });
+
+        function dismissLoading() {
+            const overlay = document.getElementById('loading-overlay');
+            overlay.style.opacity = '0';
+            setTimeout(() => overlay.style.display = 'none', 500);
+        }
+
+        function toggleGuide() {
+            document.getElementById('guide-modal').classList.toggle('hidden');
+        }
+
+        function initThreeJS() {
+            const canvas = document.getElementById('gameCanvas');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.FogExp2(0x0f172a, 0.012);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Éclairage puissant
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(30, 50, 30);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            // Charger les assets (Map & Joueur)
+            loadAssets();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function loadAssets() {
+            const loader = new THREE.GLTFLoader();
+            const progressBar = document.getElementById('progress-bar');
+            const statusText = document.getElementById('status-text');
+            const details = document.getElementById('loading-details');
+
+            let mapLoaded = false;
+            let playerLoaded = false;
+
+            function checkAllLoaded() {
+                if (mapLoaded && playerLoaded) {
+                    progressBar.style.width = '100%';
+                    details.textContent = "Tous les modèles sont chargés !";
+                    statusText.textContent = "Jeu prêt (Modèles GLB actifs)";
+                    setTimeout(dismissLoading, 700);
+                }
+            }
+
+            // 1. Charger map.glb
+            loader.load(
+                'map.glb',
+                (gltf) => {
+                    mapModel = gltf.scene;
+                    mapModel.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            // Enregistrer la boîte de collision de chaque mesh
+                            const box = new THREE.Box3().setFromObject(child);
+                            colliders.push(box);
+                        }
+                    });
+                    scene.add(mapModel);
+                    mapLoaded = true;
+                    progressBar.style.width = '60%';
+                    details.textContent = "map.glb chargé avec succès.";
+                    checkAllLoaded();
+                },
+                undefined,
+                (error) => {
+                    console.warn("map.glb introuvable à la racine. Activation du monde procédural de secours.");
+                    createProceduralMap();
+                    mapLoaded = true;
+                    progressBar.style.width = '60%';
+                    details.textContent = "Monde procédural de secours activé.";
+                    checkAllLoaded();
+                }
+            );
+
+            // 2. Charger player.glb
+            loader.load(
+                'player.glb',
+                (gltf) => {
+                    player = gltf.scene;
+                    player.scale.set(0.7, 0.7, 0.7);
+                    player.traverse((child) => {
+                        if (child.isMesh) child.castShadow = true;
+                    });
+                    // Position initiale sécurisée au-dessus du sol
+                    player.position.set(0, 5, 0);
+                    scene.add(player);
+                    playerLoaded = true;
+                    checkAllLoaded();
+                },
+                undefined,
+                (error) => {
+                    console.warn("player.glb introuvable à la racine. Création de l'avatar Roblox par défaut.");
+                    createProceduralPlayer();
+                    playerLoaded = true;
+                    checkAllLoaded();
+                }
+            );
+        }
+
+        // Monde procédural de secours (Garanti sans chute)
+        function createProceduralMap() {
+            colliders = []; // Réinitialiser
+
+            // Grand sol vert/bleu style Roblox
+            const floorGeo = new THREE.BoxGeometry(80, 2, 80);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.position.set(0, -1, 0);
+            floor.receiveShadow = true;
+            scene.add(floor);
+            colliders.push(new THREE.Box3().setFromObject(floor));
+
+            // Quelques blocs d'obstacles sur lesquels monter
+            const boxMat = new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.4 });
+            for (let i = 0; i < 15; i++) {
+                const w = Math.random() * 4 + 2;
+                const h = Math.random() * 4 + 1;
+                const d = Math.random() * 4 + 2;
+                const boxGeo = new THREE.BoxGeometry(w, h, d);
+                const box = new THREE.Mesh(boxGeo, boxMat);
+
+                const x = (Math.random() - 0.5) * 50;
+                const z = (Math.random() - 0.5) * 50;
+                box.position.set(x, h / 2, z);
+                box.castShadow = true;
+                box.receiveShadow = true;
+                scene.add(box);
+                colliders.push(new THREE.Box3().setFromObject(box));
+            }
+        }
+
+        // Avatar Roblox par défaut
+        function createProceduralPlayer() {
+            player = new THREE.Group();
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xec4899 });
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfde047 });
+            const limbsMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6 });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1, 0.4), bodyMat);
+            torso.position.y = 1.0;
+            torso.castShadow = true;
+            player.add(torso);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), headMat);
+            head.position.y = 1.7;
+            head.castShadow = true;
+            player.add(head);
+
+            const legGeo = new THREE.BoxGeometry(0.35, 0.8, 0.4);
+            const leftLeg = new THREE.Mesh(legGeo, limbsMat);
+            leftLeg.position.set(-0.22, 0.4, 0);
+            leftLeg.castShadow = true;
+            player.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, limbsMat);
+            rightLeg.position.set(0.22, 0.4, 0);
+            rightLeg.castShadow = true;
+            player.add(rightLeg);
+
+            player.position.set(0, 4, 0); // Position de sécurité en l'air pour atterrir proprement sur le sol
+            scene.add(player);
+        }
+
+        // Contrôles PC & Souris
+        function setupControls() {
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = true;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = true;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = true;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.right = true;
+                if (e.code === 'Space') {
+                    if (isGrounded) {
+                        velocityY = jumpForce;
+                        isGrounded = false;
+                    }
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = false;
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = false;
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = false;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.right = false;
+            });
+
+            // Bouton Saut tactile
+            const jumpBtn = document.getElementById('jump-btn');
+            jumpBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (isGrounded) {
+                    velocityY = jumpForce;
+                    isGrounded = false;
+                }
+            });
+            jumpBtn.addEventListener('click', () => {
+                if (isGrounded) {
+                    velocityY = jumpForce;
+                    isGrounded = false;
+                }
+            });
+
+            // Caméra souris
+            window.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.interactive')) return;
+                isDragging = true;
+                prevMousePos = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - prevMousePos.x;
+                const dy = e.clientY - prevMousePos.y;
+
+                cameraAngleX -= dx * 0.005;
+                cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + dy * 0.005));
+                prevMousePos = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            // Caméra tactile glissée
+            window.addEventListener('touchmove', (e) => {
+                if (e.target.closest('.interactive')) return;
+                if (e.touches.length === 1 && !joystickActive) {
+                    const touch = e.touches[0];
+                    if (prevMousePos.x === 0 && prevMousePos.y === 0) {
+                        prevMousePos = { x: touch.clientX, y: touch.clientY };
+                        return;
+                    }
+                    const dx = touch.clientX - prevMousePos.x;
+                    const dy = touch.clientY - prevMousePos.y;
+
+                    cameraAngleX -= dx * 0.005;
+                    cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + dy * 0.005));
+                    prevMousePos = { x: touch.clientX, y: touch.clientY };
+                }
+            }, { passive: true });
+
+            window.addEventListener('touchend', () => { prevMousePos = { x: 0, y: 0 }; });
+        }
+
+        // Joystick virtuel tactile
+        function setupTouchJoystick() {
+            const container = document.getElementById('joystick-container');
+            const base = document.getElementById('joystick-base');
+            const stick = document.getElementById('joystick-stick');
+
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                container.style.display = 'block';
+            }
+
+            window.addEventListener('touchstart', (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    if (touch.clientX < window.innerWidth / 2 && !joystickActive && !e.target.closest('.interactive')) {
+                        joystickActive = true;
+                        joystickCenter = { x: touch.clientX, y: touch.clientY };
+                        base.style.display = 'block';
+                        base.style.left = (touch.clientX - 65) + 'px';
+                        base.style.top = (touch.clientY - 65) + 'px';
+                        stick.style.transform = `translate(0px, 0px)`;
+                        joystickData = { x: 0, y: 0 };
+                    }
+                }
+            }, { passive: true });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!joystickActive) return;
+                for (let i = 0; i < e.touches.length; i++) {
+                    const touch = e.touches[i];
+                    const dx = touch.clientX - joystickCenter.x;
+                    const dy = touch.clientY - joystickCenter.y;
+                    const distance = Math.min(50, Math.sqrt(dx * dx + dy * dy));
+                    const angle = Math.atan2(dy, dx);
+
+                    const lx = Math.cos(angle) * distance;
+                    const ly = Math.sin(angle) * distance;
+
+                    stick.style.transform = `translate(${lx}px, ${ly}px)`;
+                    joystickData.x = lx / 50;
+                    joystickData.y = ly / 50;
+                }
+            }, { passive: true });
+
+            window.addEventListener('touchend', () => {
+                if (joystickActive) {
+                    joystickActive = false;
+                    base.style.display = 'none';
+                    joystickData = { x: 0, y: 0 };
+                }
+            });
+        }
+
+        // Vérification stricte des collisions (Anti-traversement)
+        function checkCollision(nextPos) {
+            if (!player || colliders.length === 0) return false;
+
+            const playerBox = new THREE.Box3();
+            const size = new THREE.Vector3(0.8, 1.8, 0.8);
+            playerBox.setFromCenterAndSize(new THREE.Vector3(nextPos.x, nextPos.y + 0.9, nextPos.z), size);
+
+            for (let i = 0; i < colliders.length; i++) {
+                if (playerBox.intersectsBox(colliders[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Boucle d'animation principale
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (player) {
+                moveDirection.set(0, 0, 0);
+                let inputX = 0;
+                let inputZ = 0;
+
+                if (keys.forward) inputZ -= 1;
+                if (keys.backward) inputZ += 1;
+                if (keys.left) inputX -= 1;
+                if (keys.right) inputX += 1;
+
+                if (joystickActive) {
+                    inputX += joystickData.x;
+                    inputZ += joystickData.y;
+                }
+
+                if (inputX !== 0 || inputZ !== 0) {
+                    const forward = new THREE.Vector3(Math.sin(cameraAngleX), 0, Math.cos(cameraAngleX));
+                    const right = new THREE.Vector3(Math.cos(cameraAngleX), 0, -Math.sin(cameraAngleX));
+
+                    moveDirection.addScaledVector(forward, -inputZ);
+                    moveDirection.addScaledVector(right, inputX);
+                    moveDirection.normalize();
+
+                    player.rotation.y = Math.atan2(moveDirection.x, moveDirection.z);
+
+                    const nextX = player.position.x + moveDirection.x * playerSpeed;
+                    const nextZ = player.position.z + moveDirection.z * playerSpeed;
+
+                    if (!checkCollision(new THREE.Vector3(nextX, player.position.y, player.position.z))) {
+                        player.position.x = nextX;
+                    }
+                    if (!checkCollision(new THREE.Vector3(player.position.x, player.position.y, nextZ))) {
+                        player.position.z = nextZ;
+                    }
+                }
+
+                // Gravité et collisions verticales
+                velocityY += gravity;
+                const nextY = player.position.y + velocityY;
+
+                if (checkCollision(new THREE.Vector3(player.position.x, nextY, player.position.z))) {
+                    if (velocityY < 0) {
+                        isGrounded = true;
+                    }
+                    velocityY = 0;
+                } else {
+                    player.position.y = nextY;
+                    isGrounded = false;
+                }
+
+                // Sécurité anti-chute infinie (téléportation au sommet)
+                if (player.position.y < -25) {
+                    player.position.set(0, 6, 0);
+                    velocityY = 0;
+                }
+
+                // Suivi de la caméra 3D Tiers-personne
+                const camX = player.position.x + cameraDistance * Math.sin(cameraAngleX) * Math.cos(cameraAngleY);
+                const camY = player.position.y + cameraDistance * Math.sin(cameraAngleY);
+                const camZ = player.position.z + cameraDistance * Math.cos(cameraAngleX) * Math.cos(cameraAngleY);
+
+                camera.position.set(camX, camY, camZ);
+                camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
