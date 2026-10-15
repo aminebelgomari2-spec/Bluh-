@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mini-Roblox 3D Mobile & PC</title>
+    <title>LARPBLOX</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Police Inter -->
@@ -79,7 +79,11 @@
         #hotbar .slot.active { border-color: #f472b6; box-shadow: 0 0 14px rgba(244,114,182,0.55); transform: translateY(-4px); }
         #hotbar .slot .key { position: absolute; top: 3px; left: 7px; font-size: 10px; color: #94a3b8; font-weight: 700; }
         #hotbar .slot .name { font-size: 9px; margin-top: 2px; color: #cbd5e1; }
+        #hp-wrap { position: fixed; bottom: calc(94px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 200px; height: 16px; background: rgba(15,23,42,0.8); border: 2px solid rgba(255,255,255,0.25); border-radius: 10px; overflow: hidden; display: none; z-index: 20; pointer-events: none; }
+        #hp-fill { height: 100%; width: 100%; background: #22c55e; transition: width .15s, background .15s; }
+        #hp-text { position: absolute; inset: 0; text-align: center; font-size: 10px; line-height: 12px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
         @media (max-width: 480px) {
+            #hp-wrap { bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
             #joystick-base { left: 12px; }
             #hotbar .slot { width: 52px; height: 52px; font-size: 20px; }
         }
@@ -100,7 +104,7 @@
                     <i class="fa-solid fa-cube text-lg"></i>
                 </div>
                 <div>
-                    <h1 class="font-extrabold text-sm md:text-base tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">ROBLOX-JS 3D</h1>
+                    <h1 class="font-extrabold text-sm md:text-base tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">LARPBLOX</h1>
                     <p class="text-xs text-slate-400" id="status-text">Initialisation du monde...</p>
                 </div>
             </div>
@@ -159,7 +163,7 @@
                 <div class="bg-indigo-600 text-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-lg shadow-indigo-600/30">
                     <i class="fa-solid fa-cube"></i>
                 </div>
-                <h1 class="text-3xl font-extrabold tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">ROBLOX-JS 3D</h1>
+                <h1 class="text-3xl font-extrabold tracking-wide bg-gradient-to-r from-indigo-400 to-pink-400 bg-clip-text text-transparent">LARPBLOX</h1>
                 <p class="text-slate-400 text-sm mt-1">Choisis ton jeu</p>
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
@@ -167,16 +171,16 @@
                     <div class="h-28 rounded-2xl bg-gradient-to-br from-indigo-600 to-pink-500 flex items-center justify-center text-4xl text-white mb-4">
                         <i class="fa-solid fa-person-running"></i>
                     </div>
-                    <h3 class="font-bold text-white">Mini-Roblox 3D</h3>
-                    <p class="text-xs text-slate-400 mt-1 mb-4">Explore la map en 3D à la troisième personne.</p>
+                    <h3 class="font-bold text-white">Battle Map</h3>
+                    <p class="text-xs text-slate-400 mt-1 mb-4">Affronte tes amis à coups de roquettes.</p>
                     <span class="inline-block bg-indigo-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
                 </button>
                 <button onclick="startGame('map2')" class="text-left bg-slate-900 hover:bg-slate-800 border border-slate-700/60 hover:border-pink-500/60 rounded-3xl p-4 shadow-xl transition active:scale-95">
                     <div class="h-28 rounded-2xl bg-gradient-to-br from-emerald-500 to-sky-500 flex items-center justify-center text-4xl text-white mb-4">
                         <i class="fa-solid fa-map"></i>
                     </div>
-                    <h3 class="font-bold text-white">Map 2</h3>
-                    <p class="text-xs text-slate-400 mt-1 mb-4">Une nouvelle map à explorer, avec le lance-roquettes.</p>
+                    <h3 class="font-bold text-white">Minelarp</h3>
+                    <p class="text-xs text-slate-400 mt-1 mb-4">Une map géante à explorer, avec le lance-roquettes.</p>
                     <span class="inline-block bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
                 </button>
             </div>
@@ -187,6 +191,10 @@
             </div>
         </div>
     </div>
+
+    <!-- Vie + flash de dégâts -->
+    <div id="hp-wrap"><div id="hp-fill"></div><div id="hp-text">100</div></div>
+    <div id="hurt-flash" style="position:fixed; inset:0; background:rgba(239,68,68,0.35); opacity:0; pointer-events:none; transition:opacity .25s; z-index:25"></div>
 
     <!-- Barre d'outils -->
     <div id="hotbar" class="interactive">
@@ -295,8 +303,8 @@
 
         // Liste des maps (fichier .glb à la racine du site)
         const MAPS = {
-            map1: { file: 'map.glb',  name: 'Mini-Roblox 3D', short: 'Map 1', scale: MAP_SCALE },
-            map2: { file: 'map2.glb', name: 'Map 2',          short: 'Map 2', scale: MAP_SCALE }
+            map1: { file: 'map.glb',  name: 'Battle Map', short: 'Battle Map', scale: MAP_SCALE },
+            map2: { file: 'map2.glb', name: 'Minelarp',   short: 'Minelarp',   scale: MAP_SCALE * 100 } // 100x plus grande
         };
         let currentMap = 'map1';   // map active dans la scène
         let activeGroup = null;
@@ -357,6 +365,7 @@
             if (!MAPS[mapId]) mapId = currentMap;
             inMenu = false;
             document.getElementById('hotbar').style.display = 'flex';
+            document.getElementById('hp-wrap').style.display = 'block';
             setRocketEquipped(true); // le lance-roquettes est donné en entrant dans une map
             const m = document.getElementById('menu-overlay');
             m.style.opacity = '0';
@@ -371,6 +380,7 @@
             inMenu = true;
             broadcast({ t: 'state', ingame: false, map: currentMap });
             document.getElementById('hotbar').style.display = 'none';
+            document.getElementById('hp-wrap').style.display = 'none';
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
             requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
@@ -513,7 +523,7 @@
             return Promise.all([loadMap(id), playerPromise]).then(([d]) => {
                 const changed = activeGroup !== d.group;
                 activateMap(id);
-                if (changed) placePlayerAtSpawn();
+                if (changed) { placePlayerAtSpawn(); hp = MAX_HP; dead = false; if (player) player.visible = true; updateHpBar(); }
                 worldReady = true;
                 if (!d.failed) {
                     setLoading("Prêt !", 100, false);
@@ -928,9 +938,10 @@
             else if (d.t === 'pos') { if ((d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d); else removeRemote(fid); }
             else if (d.t === 'rocket' && (d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
                 const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
-                if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize());
+                if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize(), fid);
             }
-            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (MAPS[d.map] ? MAPS[d.map].short : 'Map 1') + ")", "Rejoindre", () => { closeFriends(); startGame(MAPS[d.map] ? d.map : 'map1'); });
+            else if (d.t === 'dead') { removeRemote(fid); if (d.by === myId) toast("Tu as éliminé " + fid + " !"); }
+            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (MAPS[d.map] ? MAPS[d.map].short : 'Battle Map') + ")", "Rejoindre", () => { closeFriends(); startGame(MAPS[d.map] ? d.map : 'map1'); });
             else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
         }
 
@@ -1024,20 +1035,32 @@
             g.scale.setScalar(0.9);
 
             const cv = document.createElement('canvas');
-            cv.width = 256; cv.height = 64;
-            const ctx = cv.getContext('2d');
-            ctx.fillStyle = 'rgba(15,23,42,0.75)';
-            ctx.fillRect(0, 0, 256, 64);
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 36px monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(fid, 128, 34);
-            const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false }));
-            label.scale.set(1.8, 0.45, 1);
+            cv.width = 256; cv.height = 80;
+            const tex = new THREE.CanvasTexture(cv);
+            g.userData.label = { cv, tex, name: fid };
+            drawLabel(g, 100);
+            const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+            label.scale.set(1.8, 0.56, 1);
             label.position.y = 2.5;
             g.add(label);
             return g;
+        }
+        function drawLabel(g, hp) {
+            const { cv, tex, name } = g.userData.label;
+            const ctx = cv.getContext('2d');
+            ctx.clearRect(0, 0, 256, 80);
+            ctx.fillStyle = 'rgba(15,23,42,0.75)';
+            ctx.fillRect(0, 0, 256, 80);
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 34px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(name, 128, 26);
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(20, 52, 216, 16);
+            ctx.fillStyle = hp > 50 ? '#22c55e' : hp > 25 ? '#eab308' : '#ef4444';
+            ctx.fillRect(20, 52, 216 * Math.max(0, Math.min(1, hp / 100)), 16);
+            tex.needsUpdate = true;
         }
         function updateRemote(fid, d) {
             let r = remotes[fid];
@@ -1045,11 +1068,12 @@
                 const g = createRemoteAvatar(fid);
                 g.position.set(d.x, d.y, d.z);
                 scene.add(g);
-                r = remotes[fid] = { group: g, target: new THREE.Vector3(), ry: 0, last: 0 };
+                r = remotes[fid] = { group: g, target: new THREE.Vector3(), ry: 0, last: 0, hp: 100 };
             }
             r.target.set(d.x, d.y, d.z);
             r.ry = d.ry;
             r.last = performance.now();
+            if (Number.isFinite(d.hp) && d.hp !== r.hp) { r.hp = d.hp; drawLabel(r.group, d.hp); }
         }
         function removeRemote(fid) {
             const r = remotes[fid];
@@ -1061,9 +1085,9 @@
         function networkTick() {
             const now = performance.now();
             projectileTick(now);
-            if (player && worldReady && !inMenu && now - lastSend > 70) {
+            if (player && worldReady && !inMenu && !dead && now - lastSend > 70) {
                 lastSend = now;
-                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap });
+                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap, hp: Math.round(hp) });
             }
             for (const id in remotes) {
                 const r = remotes[id];
@@ -1106,7 +1130,7 @@
         }
 
         function fireAt(cx, cy) {
-            if (!rocketEquipped || inMenu || !player || !worldReady) return;
+            if (!rocketEquipped || inMenu || dead || !player || !worldReady) return;
             const now = performance.now();
             if (now - lastShot < ROCKET_COOLDOWN) return;
             const ndc = new THREE.Vector2(cx / window.innerWidth * 2 - 1, -(cy / window.innerHeight) * 2 + 1);
@@ -1122,11 +1146,11 @@
             lastShot = now;
             origin.addScaledVector(dir, 0.8);
             player.rotation.y = Math.atan2(dir.x, dir.z); // le perso se tourne vers la cible
-            spawnRocket(origin, dir);
+            spawnRocket(origin, dir, myId || 'me');
             broadcast({ t: 'rocket', x: +origin.x.toFixed(2), y: +origin.y.toFixed(2), z: +origin.z.toFixed(2), dx: +dir.x.toFixed(3), dy: +dir.y.toFixed(3), dz: +dir.z.toFixed(3), m: currentMap });
         }
 
-        function spawnRocket(origin, dir) {
+        function spawnRocket(origin, dir, owner) {
             if (rockets.length > 30) return;
             if (!rocketAssets) {
                 rocketAssets = {
@@ -1148,10 +1172,11 @@
             g.position.copy(origin);
             g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
             scene.add(g);
-            rockets.push({ mesh: g, dir: dir.clone(), life: 0 });
+            rockets.push({ mesh: g, dir: dir.clone(), life: 0, owner });
         }
 
-        function explode(pos) {
+        function explode(pos, owner) {
+            applyBlast(pos, owner);
             const a = new THREE.Mesh(rocketAssets.boom, new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.95 }));
             const b = new THREE.Mesh(rocketAssets.boom, new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.5 }));
             a.position.copy(pos);
@@ -1163,6 +1188,7 @@
         function projectileTick(now) {
             const dt = Math.min(0.05, (now - lastTick) / 1000);
             lastTick = now;
+            regenTick(now, dt);
             for (let i = rockets.length - 1; i >= 0; i--) {
                 const r = rockets[i];
                 const step = ROCKET_SPEED * dt;
@@ -1170,8 +1196,8 @@
                 raycaster.set(r.mesh.position, r.dir);
                 raycaster.far = step + 0.3;
                 const hit = raycaster.intersectObjects(solids, false);
-                if (hit.length || r.life > 4) {
-                    explode(hit.length ? hit[0].point : r.mesh.position);
+                if (hit.length || r.life > 4 || nearPlayer(r)) {
+                    explode(hit.length ? hit[0].point : r.mesh.position, r.owner);
                     scene.remove(r.mesh);
                     rockets.splice(i, 1);
                 } else {
@@ -1194,6 +1220,76 @@
                 e.a.material.opacity = 0.95 * (1 - k);
                 e.b.material.opacity = 0.5 * (1 - k);
             }
+        }
+
+        // ----- Dégâts, vie, élimination -----
+        const MAX_HP = 100;
+        const BLAST_RADIUS = 4.5;   // rayon des dégâts
+        const BLAST_DAMAGE = 60;    // dégâts max (au centre de l'explosion)
+        let hp = MAX_HP, dead = false, lastHurt = 0, invulnUntil = 0, shownHp = -1;
+
+        function updateHpBar() {
+            const v = Math.round(hp);
+            if (v === shownHp) return;
+            shownHp = v;
+            const f = document.getElementById('hp-fill');
+            f.style.width = Math.max(0, v) + '%';
+            f.style.background = v > 50 ? '#22c55e' : v > 25 ? '#eab308' : '#ef4444';
+            document.getElementById('hp-text').textContent = v;
+        }
+
+        // Une roquette explose à côté de moi ? C'est mon client qui calcule MES dégâts.
+        function applyBlast(pos, owner) {
+            if (inMenu || !worldReady || !player || dead || performance.now() < invulnUntil) return;
+            const dist = Math.hypot(pos.x - player.position.x, pos.y - (player.position.y + 0.9), pos.z - player.position.z);
+            if (dist > BLAST_RADIUS) return;
+            let dmg = BLAST_DAMAGE * (1 - dist / BLAST_RADIUS);
+            if (owner === (myId || 'me')) dmg *= 0.5; // dégâts réduits sur ses propres tirs
+            if (dmg >= 1) hurt(Math.round(dmg), owner);
+        }
+
+        function hurt(dmg, by) {
+            hp = Math.max(0, hp - dmg);
+            lastHurt = performance.now();
+            const fl = document.getElementById('hurt-flash');
+            fl.style.opacity = '1';
+            setTimeout(() => { fl.style.opacity = '0'; }, 120);
+            updateHpBar();
+            if (hp <= 0) die(by);
+        }
+
+        function die(by) {
+            dead = true;
+            player.visible = false;
+            const self = by === (myId || 'me');
+            if (!self) broadcast({ t: 'dead', by });
+            else broadcast({ t: 'dead', by: null });
+            toast(self ? "Tu t'es explosé !" : "Éliminé par " + by);
+            setTimeout(() => {
+                hp = MAX_HP;
+                dead = false;
+                player.visible = true;
+                invulnUntil = performance.now() + 2500;
+                placePlayerAtSpawn();
+                updateHpBar();
+            }, 2000);
+        }
+
+        function regenTick(now, dt) {
+            if (!dead && hp < MAX_HP && now - lastHurt > 4000) { hp = Math.min(MAX_HP, hp + 3 * dt); updateHpBar(); }
+        }
+
+        // Roquette qui touche directement un joueur (moi, ou un ami pour l'effet visuel)
+        function nearPlayer(r) {
+            const p = r.mesh.position;
+            const self = myId || 'me';
+            if (r.owner !== self && player && !inMenu && !dead && Math.hypot(p.x - player.position.x, p.y - (player.position.y + 0.9), p.z - player.position.z) < 1.0) return true;
+            for (const id in remotes) {
+                if (id === r.owner) continue;
+                const g = remotes[id].group.position;
+                if (Math.hypot(p.x - g.x, p.y - (g.y + 0.9), p.z - g.z) < 1.0) return true;
+            }
+            return false;
         }
 
         // ----- Sauvegarde manuelle (code + amis) -----
@@ -1280,7 +1376,8 @@
                     inputZ += joystickData.y;
                 }
 
-                if (inMenu) { inputX = 0; inputZ = 0; cameraAngleX += 0.004; }
+    if (inMenu || dead) { inputX = 0; inputZ = 0; }
+                if (inMenu) cameraAngleX += 0.004;
 
                 if (inputX !== 0 || inputZ !== 0) {
                     const forward = new THREE.Vector3(-Math.sin(cameraAngleX), 0, -Math.cos(cameraAngleX));
