@@ -44,28 +44,31 @@
         .interactive {
             pointer-events: auto;
         }
-        /* Joystick tactile virtuel */
+        /* Joystick tactile virtuel (fixe, visible sur mobile) */
         #joystick-base {
-            width: 130px;
-            height: 130px;
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.3);
+            width: 140px;
+            height: 140px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 2px solid rgba(255, 255, 255, 0.35);
             border-radius: 50%;
-            position: absolute;
-            bottom: 40px;
-            left: 40px;
+            position: fixed;
+            bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+            left: 32px;
             display: none;
             touch-action: none;
+            z-index: 20;
+            pointer-events: auto;
         }
         #joystick-stick {
-            width: 50px;
-            height: 50px;
-            background: rgba(255, 255, 255, 0.8);
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.85);
             border-radius: 50%;
             position: absolute;
             top: 40px;
             left: 40px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+            pointer-events: none;
         }
     </style>
 </head>
@@ -118,10 +121,8 @@
         <!-- Contrôles Mobiles -->
         <div class="flex justify-between items-end pb-4 md:pb-0">
             <!-- Joystick tactile -->
-            <div id="joystick-container" class="interactive relative w-32 h-32 hidden">
-                <div id="joystick-base">
-                    <div id="joystick-stick"></div>
-                </div>
+            <div id="joystick-base" class="interactive">
+                <div id="joystick-stick"></div>
             </div>
 
             <!-- Bouton de saut -->
@@ -348,12 +349,24 @@
             loader.load(
                 'player.glb',
                 (gltf) => {
-                    player = gltf.scene;
-                    player.scale.set(0.7, 0.7, 0.7);
-                    player.traverse((child) => {
-                        if (child.isMesh) child.castShadow = true;
+                    const model = gltf.scene;
+                    model.traverse((child) => {
+                        if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; }
                     });
-                    // Position initiale sécurisée au-dessus du sol
+                    // Normaliser : hauteur fixe, centré en x/z, pieds exactement à y = 0
+                    const PLAYER_HEIGHT = 1.8;
+                    model.updateMatrixWorld(true);
+                    let pBox = new THREE.Box3().setFromObject(model);
+                    const pSize = pBox.getSize(new THREE.Vector3());
+                    if (pSize.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / pSize.y);
+                    model.updateMatrixWorld(true);
+                    pBox = new THREE.Box3().setFromObject(model);
+                    const pCenter = pBox.getCenter(new THREE.Vector3());
+                    model.position.x -= pCenter.x;
+                    model.position.z -= pCenter.z;
+                    model.position.y -= pBox.min.y;
+                    player = new THREE.Group();
+                    player.add(model);
                     player.position.set(0, 5, 0);
                     scene.add(player);
                     playerLoaded = true;
@@ -491,77 +504,82 @@
 
             window.addEventListener('mouseup', () => { isDragging = false; });
 
-            // Caméra tactile glissée
-            window.addEventListener('touchmove', (e) => {
-                if (e.target.closest('.interactive')) return;
-                if (e.touches.length === 1 && !joystickActive) {
-                    const touch = e.touches[0];
-                    if (prevMousePos.x === 0 && prevMousePos.y === 0) {
-                        prevMousePos = { x: touch.clientX, y: touch.clientY };
-                        return;
+            // Caméra tactile : un doigt hors joystick/boutons fait tourner la vue
+            let camTouchId = null;
+            let camPrev = { x: 0, y: 0 };
+            window.addEventListener('touchstart', (e) => {
+                for (const t of e.changedTouches) {
+                    const onUI = t.target.closest && t.target.closest('.interactive');
+                    if (camTouchId === null && !onUI) {
+                        camTouchId = t.identifier;
+                        camPrev = { x: t.clientX, y: t.clientY };
                     }
-                    const dx = touch.clientX - prevMousePos.x;
-                    const dy = touch.clientY - prevMousePos.y;
-
-                    cameraAngleX -= dx * 0.005;
-                    cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + dy * 0.005));
-                    prevMousePos = { x: touch.clientX, y: touch.clientY };
                 }
             }, { passive: true });
-
-            window.addEventListener('touchend', () => { prevMousePos = { x: 0, y: 0 }; });
+            window.addEventListener('touchmove', (e) => {
+                for (const t of e.changedTouches) {
+                    if (t.identifier !== camTouchId) continue;
+                    cameraAngleX -= (t.clientX - camPrev.x) * 0.005;
+                    cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + (t.clientY - camPrev.y) * 0.005));
+                    camPrev = { x: t.clientX, y: t.clientY };
+                }
+            }, { passive: true });
+            const camEnd = (e) => {
+                for (const t of e.changedTouches) if (t.identifier === camTouchId) camTouchId = null;
+            };
+            window.addEventListener('touchend', camEnd);
+            window.addEventListener('touchcancel', camEnd);
         }
 
-        // Joystick virtuel tactile
+        // Joystick virtuel tactile (fixe en bas à gauche)
         function setupTouchJoystick() {
-            const container = document.getElementById('joystick-container');
             const base = document.getElementById('joystick-base');
             const stick = document.getElementById('joystick-stick');
+            const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            if (isTouch) base.style.display = 'block';
 
-            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-                container.style.display = 'block';
+            const maxR = 45;
+            let joyId = null;
+
+            function updateStick(t) {
+                const r = base.getBoundingClientRect();
+                let dx = t.clientX - (r.left + r.width / 2);
+                let dy = t.clientY - (r.top + r.height / 2);
+                const dist = Math.hypot(dx, dy);
+                if (dist > maxR) { dx = dx / dist * maxR; dy = dy / dist * maxR; }
+                stick.style.transform = `translate(${dx}px, ${dy}px)`;
+                const dead = Math.hypot(dx, dy) < 8; // zone morte
+                joystickData.x = dead ? 0 : dx / maxR;
+                joystickData.y = dead ? 0 : dy / maxR;
             }
 
-            window.addEventListener('touchstart', (e) => {
-                for (let i = 0; i < e.changedTouches.length; i++) {
-                    const touch = e.changedTouches[i];
-                    if (touch.clientX < window.innerWidth / 2 && !joystickActive && !e.target.closest('.interactive')) {
-                        joystickActive = true;
-                        joystickCenter = { x: touch.clientX, y: touch.clientY };
-                        base.style.display = 'block';
-                        base.style.left = (touch.clientX - 65) + 'px';
-                        base.style.top = (touch.clientY - 65) + 'px';
-                        stick.style.transform = `translate(0px, 0px)`;
-                        joystickData = { x: 0, y: 0 };
-                    }
-                }
-            }, { passive: true });
+            function resetStick() {
+                joyId = null;
+                joystickActive = false;
+                stick.style.transform = 'translate(0px, 0px)';
+                joystickData = { x: 0, y: 0 };
+            }
+
+            base.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (joyId !== null) return;
+                const t = e.changedTouches[0];
+                joyId = t.identifier;
+                joystickActive = true;
+                updateStick(t);
+            }, { passive: false });
 
             window.addEventListener('touchmove', (e) => {
-                if (!joystickActive) return;
-                for (let i = 0; i < e.touches.length; i++) {
-                    const touch = e.touches[i];
-                    const dx = touch.clientX - joystickCenter.x;
-                    const dy = touch.clientY - joystickCenter.y;
-                    const distance = Math.min(50, Math.sqrt(dx * dx + dy * dy));
-                    const angle = Math.atan2(dy, dx);
-
-                    const lx = Math.cos(angle) * distance;
-                    const ly = Math.sin(angle) * distance;
-
-                    stick.style.transform = `translate(${lx}px, ${ly}px)`;
-                    joystickData.x = lx / 50;
-                    joystickData.y = ly / 50;
-                }
+                if (joyId === null) return;
+                for (const t of e.changedTouches) if (t.identifier === joyId) updateStick(t);
             }, { passive: true });
 
-            window.addEventListener('touchend', () => {
-                if (joystickActive) {
-                    joystickActive = false;
-                    base.style.display = 'none';
-                    joystickData = { x: 0, y: 0 };
-                }
-            });
+            const end = (e) => {
+                if (joyId === null) return;
+                for (const t of e.changedTouches) if (t.identifier === joyId) resetStick();
+            };
+            window.addEventListener('touchend', end);
+            window.addEventListener('touchcancel', end);
         }
 
         // Hauteur du sol sous (x,z) en partant de fromY vers le bas
@@ -627,7 +645,7 @@
                 }
 
                 if (inputX !== 0 || inputZ !== 0) {
-                    const forward = new THREE.Vector3(Math.sin(cameraAngleX), 0, Math.cos(cameraAngleX));
+                    const forward = new THREE.Vector3(-Math.sin(cameraAngleX), 0, -Math.cos(cameraAngleX));
                     const right = new THREE.Vector3(Math.cos(cameraAngleX), 0, -Math.sin(cameraAngleX));
 
                     moveDirection.addScaledVector(forward, -inputZ);
