@@ -46,7 +46,7 @@
         .interactive {
             pointer-events: auto;
         }
-        input { user-select: text; -webkit-user-select: text; touch-action: auto; }
+        input, textarea { user-select: text; -webkit-user-select: text; touch-action: auto; }
         /* Joystick tactile virtuel (fixe, visible sur mobile) */
         #joystick-base {
             width: 140px;
@@ -87,6 +87,17 @@
             #joystick-base { left: 12px; }
             #hotbar .slot { width: 52px; height: 52px; font-size: 20px; }
         }
+        /* Studio */
+        body.studio-edit .ui-layer > div:first-child, body.studio-edit #jump-btn, body.studio-edit #loading-overlay { display: none !important; }
+        #studio-ui { position: fixed; inset: 0; pointer-events: none; z-index: 45; }
+        .st-panel { position: fixed; background: rgba(15,23,42,0.94); border: 1px solid rgba(100,116,139,0.4); border-radius: 16px; color: #e2e8f0; backdrop-filter: blur(8px); pointer-events: auto; }
+        .st-btn { background: rgba(30,41,59,0.95); border: 1px solid rgba(100,116,139,0.5); color: #e2e8f0; padding: 8px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .st-btn:hover { background: #334155; }
+        .st-btn.primary { background: #4f46e5; border-color: #818cf8; color: #fff; }
+        .st-btn.green { background: #16a34a; border-color: #4ade80; color: #fff; }
+        .st-btn.red { background: #b91c1c; border-color: #f87171; color: #fff; }
+        .st-in { width: 100%; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 5px 7px; color: #fff; font-size: 12px; }
+        .pp-l { display: block; font-size: 10px; color: #94a3b8; margin: 8px 0 2px; }
     </style>
 </head>
 <body>
@@ -184,13 +195,76 @@
                     <span class="inline-block bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
                 </button>
             </div>
-            <div class="mt-6 text-center">
+            <div class="mt-6 text-center space-x-3">
+                <button onclick="openHub()" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/50 text-white font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
+                    <i class="fa-solid fa-hammer mr-2"></i>Studio
+                </button>
                 <button onclick="openFriends()" class="bg-slate-800 hover:bg-slate-700 border border-slate-600/60 text-slate-100 font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
                     <i class="fa-solid fa-user-plus text-pink-400 mr-2"></i>Ajouter un ami
                 </button>
             </div>
         </div>
     </div>
+
+    <!-- STUDIO : éditeur -->
+    <div id="studio-ui" style="display:none">
+        <div class="st-panel interactive" style="top:8px; left:8px; right:8px; padding:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button class="st-btn" onclick="studioExit()"><i class="fa-solid fa-arrow-left"></i> Menu</button>
+            <input id="st-name" class="st-in" style="max-width:180px" maxlength="40" oninput="studioRename(this.value)">
+            <label class="flex items-center gap-1 text-xs"><input type="checkbox" id="st-rockets" onchange="studioRockets(this.checked)"> Lance-roquettes</label>
+            <button class="st-btn" onclick="openScript(null)"><i class="fa-solid fa-code"></i> Script du jeu</button>
+            <span id="st-save" class="text-xs text-slate-400 ml-auto">Enregistré ✓</span>
+            <button class="st-btn primary" onclick="studioTest()"><i class="fa-solid fa-play"></i> Tester</button>
+        </div>
+        <div class="st-panel interactive" style="top:96px; left:8px; padding:6px; display:flex; flex-direction:column; gap:6px">
+            <button class="st-btn" onclick="studioAdd('box')" title="Cube"><i class="fa-regular fa-square"></i></button>
+            <button class="st-btn" onclick="studioAdd('sphere')" title="Sphère"><i class="fa-regular fa-circle"></i></button>
+            <button class="st-btn" onclick="studioAdd('cylinder')" title="Cylindre"><i class="fa-solid fa-database"></i></button>
+            <button class="st-btn" onclick="studioAdd('spawn')" title="Point d'apparition"><i class="fa-solid fa-flag"></i></button>
+        </div>
+        <div id="st-props" class="st-panel interactive" style="top:96px; right:8px; width:min(235px, 62vw); max-height:calc(100vh - 110px); overflow-y:auto; padding:10px; display:none; touch-action:pan-y">
+            <div class="flex items-center justify-between"><b id="pp-title" class="text-sm">Pièce</b><button class="st-btn" onclick="studioSelect(null)"><i class="fa-solid fa-xmark"></i></button></div>
+            <label class="pp-l">Nom</label><input id="pp-name" class="st-in" maxlength="40" oninput="studioProp()">
+            <label class="pp-l">Position X / Y / Z</label>
+            <div class="grid grid-cols-3 gap-1"><input id="pp-x" type="number" step="0.5" class="st-in" oninput="studioProp()"><input id="pp-y" type="number" step="0.5" class="st-in" oninput="studioProp()"><input id="pp-z" type="number" step="0.5" class="st-in" oninput="studioProp()"></div>
+            <label class="pp-l">Taille X / Y / Z</label>
+            <div class="grid grid-cols-3 gap-1"><input id="pp-sx" type="number" step="0.5" min="0.1" class="st-in" oninput="studioProp()"><input id="pp-sy" type="number" step="0.5" min="0.1" class="st-in" oninput="studioProp()"><input id="pp-sz" type="number" step="0.5" min="0.1" class="st-in" oninput="studioProp()"></div>
+            <label class="pp-l">Rotation (°)</label><input id="pp-ry" type="number" step="15" class="st-in" oninput="studioProp()">
+            <label class="pp-l">Couleur</label><input id="pp-color" type="color" class="st-in" style="height:32px; padding:2px" oninput="studioProp()">
+            <label class="flex items-center gap-2 text-xs mt-3"><input type="checkbox" id="pp-collide" onchange="studioProp()"> Solide (on ne traverse pas)</label>
+            <div class="grid grid-cols-2 gap-2 mt-3">
+                <button class="st-btn primary" onclick="openScript(ed.sel)"><i class="fa-solid fa-code"></i> Script</button>
+                <button class="st-btn" onclick="studioFocus()">Centrer</button>
+                <button class="st-btn" onclick="studioDup()">Dupliquer</button>
+                <button class="st-btn red" onclick="studioDelete()">Supprimer</button>
+            </div>
+        </div>
+        <div class="text-xs text-slate-300" style="position:fixed; bottom:10px; left:50%; transform:translateX(-50%); text-align:center; text-shadow:0 1px 3px #000; width:90%; pointer-events:none">Clique une pièce pour la choisir, glisse-la pour la déplacer · WASD / joystick : caméra · glisser : tourner · molette : zoom</div>
+    </div>
+
+    <div id="hub-modal" class="interactive" style="display:none; position:fixed; inset:0; z-index:70; background:rgba(2,6,23,0.85); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px">
+        <div class="st-panel" style="position:relative; width:100%; max-width:520px; max-height:90vh; overflow-y:auto; padding:20px; touch-action:pan-y">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold text-white"><i class="fa-solid fa-hammer text-pink-400 mr-2"></i>Studio : mes jeux</h2><button class="st-btn" onclick="closeHub()"><i class="fa-solid fa-xmark"></i></button></div>
+            <button class="st-btn primary w-full mb-3" style="padding:12px" onclick="hubNew()"><i class="fa-solid fa-plus mr-2"></i>Nouveau jeu</button>
+            <div id="hub-list" class="space-y-2 mb-4"></div>
+            <p class="text-xs text-slate-400 mb-2">Importer un jeu (texte copié avec le bouton copier) :</p>
+            <div class="flex gap-2"><input id="hub-import" class="st-in" placeholder="RJSG1:..."><button class="st-btn" onclick="hubImport()">Importer</button></div>
+            <p class="text-xs text-slate-500 mt-3">Tes jeux sont enregistrés automatiquement dans ce navigateur. Quand tu joues à l'un d'eux, tes amis peuvent le rejoindre depuis la liste d'amis.</p>
+        </div>
+    </div>
+
+    <div id="script-modal" class="interactive" style="display:none; position:fixed; inset:0; z-index:75; background:rgba(2,6,23,0.88); align-items:center; justify-content:center; padding:10px">
+        <div class="st-panel" style="position:relative; width:100%; max-width:960px; max-height:95vh; overflow-y:auto; padding:14px; touch-action:pan-y">
+            <div class="flex justify-between items-center mb-2 gap-2"><b id="sc-title" class="text-sm truncate">Script</b><div class="flex gap-2"><button class="st-btn primary" onclick="saveScript()">Enregistrer</button><button class="st-btn" onclick="closeScript()">Fermer</button></div></div>
+            <div class="grid md:grid-cols-3 gap-3">
+                <textarea id="sc-code" spellcheck="false" autocapitalize="off" class="md:col-span-2" style="min-height:300px; width:100%; background:#0b1220; color:#e2e8f0; border:1px solid #334155; border-radius:10px; padding:10px; font-family:monospace; font-size:12px; tab-size:2"></textarea>
+                <pre id="sc-help" class="text-xs text-slate-300" style="max-height:60vh; overflow:auto; white-space:pre-wrap; background:#0f172a; border-radius:10px; padding:10px"></pre>
+            </div>
+        </div>
+    </div>
+
+    <button id="st-back" class="st-btn red interactive" style="display:none; position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:46; pointer-events:auto" onclick="studioBack()"><i class="fa-solid fa-stop"></i> Retour au Studio</button>
+    <div id="score-hud" class="text-white text-sm font-bold" style="display:none; position:fixed; top:78px; right:16px; z-index:20; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.25); border-radius:12px; padding:6px 12px; pointer-events:none">Score : <span id="score-val">0</span></div>
 
     <!-- Vie + flash de dégâts -->
     <div id="hp-wrap"><div id="hp-fill"></div><div id="hp-text">100</div></div>
@@ -317,7 +391,8 @@
         let velocityY = 0;
         const gravity = -0.012;
         const jumpForce = 0.28;
-        const playerSpeed = 0.16;   // vitesse du joueur
+        let playerSpeed = 0.16;   // vitesse du joueur (modifiable par les scripts)
+        const BASE_SPEED = 0.16;
         let isGrounded = false;
 
         // Caméra
@@ -337,6 +412,7 @@
             setupControls();
             setupTouchJoystick();
             initFriends();
+            loadGames();
             setupFire();
             animate();
         });
@@ -361,8 +437,9 @@
             d.className = 'text-xs mb-6 ' + (isError ? 'text-red-400' : 'text-slate-400');
         }
 
-        function startGame(mapId) {
-            if (!MAPS[mapId]) mapId = currentMap;
+        function startGame(mapId, fromStudio) {
+            ed.test = !!fromStudio;
+            if (!MAPS[mapId] && !customGames[mapId]) mapId = MAPS[currentMap] ? currentMap : 'map1';
             inMenu = false;
             document.getElementById('hotbar').style.display = 'flex';
             document.getElementById('hp-wrap').style.display = 'block';
@@ -372,7 +449,11 @@
             m.style.pointerEvents = 'none';
             setTimeout(() => { if (!inMenu) m.style.display = 'none'; }, 350);
             enterMap(mapId).then(() => {
-                if (!inMenu) broadcast({ t: 'state', ingame: true, map: currentMap });
+                if (inMenu) return;
+                const noRockets = customRT && !customRT.game.rockets;
+                document.getElementById('hotbar').style.display = noRockets ? 'none' : 'flex';
+                document.getElementById('st-back').style.display = ed.test ? 'block' : 'none';
+                broadcast({ t: 'state', ingame: true, map: currentMap, gname: curName() });
             });
         }
 
@@ -381,6 +462,8 @@
             broadcast({ t: 'state', ingame: false, map: currentMap });
             document.getElementById('hotbar').style.display = 'none';
             document.getElementById('hp-wrap').style.display = 'none';
+            document.getElementById('st-back').style.display = 'none';
+            stopScripts(); customRT = null; ed.test = false;
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
             requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
@@ -433,6 +516,7 @@
 
         // Charge (une seule fois) le .glb d'une map et prépare collisions, spawn, taille
         function loadMap(id) {
+            if (customGames[id]) { const cd = buildCustomWorld(id); mapCache[id] = cd; return Promise.resolve(cd); }
             if (mapCache[id]) return Promise.resolve(mapCache[id]);
             if (mapLoading[id]) return mapLoading[id];
             const info = MAPS[id];
@@ -519,15 +603,16 @@
         function enterMap(id) {
             const known = mapCache[id];
             if (!known || activeGroup !== known.group) worldReady = false;
-            if (!known) showLoading();
+            if (!known && !customGames[id]) showLoading();
             return Promise.all([loadMap(id), playerPromise]).then(([d]) => {
                 const changed = activeGroup !== d.group;
                 activateMap(id);
                 if (changed) { placePlayerAtSpawn(); hp = MAX_HP; dead = false; if (player) player.visible = true; updateHpBar(); }
+                if (customGames[id]) beginCustom(id, d); else { stopScripts(); customRT = null; }
                 worldReady = true;
                 if (!d.failed) {
                     setLoading("Prêt !", 100, false);
-                    document.getElementById('status-text').textContent = "Jeu prêt (" + MAPS[id].short + ")";
+                    document.getElementById('status-text').textContent = "Jeu prêt (" + mapLabel(id) + ")";
                     setTimeout(dismissLoading, 500);
                 }
                 return d;
@@ -635,8 +720,9 @@
         // Contrôles PC & Souris
         function setupControls() {
             window.addEventListener('keydown', (e) => {
-                if (e.target.tagName === 'INPUT') return;
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                 if (e.code === 'Digit1' && !inMenu) toggleRocket();
+                if (ed.active && (e.code === 'Delete' || e.code === 'Backspace')) studioDelete();
                 if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = true;
                 if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = true;
                 if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.left = true;
@@ -680,7 +766,7 @@
             });
 
             window.addEventListener('mousemove', (e) => {
-                if (!isDragging) return;
+                if (!isDragging || ed.drag) return;
                 const dx = e.clientX - prevMousePos.x;
                 const dy = e.clientY - prevMousePos.y;
 
@@ -705,7 +791,7 @@
             }, { passive: true });
             window.addEventListener('touchmove', (e) => {
                 for (const t of e.changedTouches) {
-                    if (t.identifier !== camTouchId) continue;
+                    if (t.identifier !== camTouchId || ed.drag) continue;
                     cameraAngleX -= (t.clientX - camPrev.x) * 0.005;
                     cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + (t.clientY - camPrev.y) * 0.005));
                     camPrev = { x: t.clientX, y: t.clientY };
@@ -902,7 +988,7 @@
 
         function register(fid, c) {
             conns[fid] = c;
-            try { c.send({ t: 'state', ingame: !inMenu, map: currentMap }); } catch (e) {}
+            try { c.send({ t: 'state', ingame: !inMenu, map: currentMap, gname: curName() }); } catch (e) {}
             renderFriends();
         }
 
@@ -934,14 +1020,42 @@
                 return;
             }
             if (conns[fid] !== c) return; // ignorer tout ce qui ne vient pas d'un ami
-            if (d.t === 'state') { states[fid] = d.ingame ? (MAPS[d.map] ? d.map : 'map1') : null; if (!d.ingame || states[fid] !== currentMap) removeRemote(fid); renderFriends(); }
+            if (d.t === 'state') {
+                states[fid] = d.ingame ? (validMap(d.map) ? d.map : 'map1') : null;
+                if (d.ingame && typeof d.gname === 'string' && CUSTOM_RE.test(states[fid])) gameNames[states[fid]] = d.gname.slice(0, 40);
+                if (!d.ingame || states[fid] !== currentMap) removeRemote(fid);
+                renderFriends();
+            }
             else if (d.t === 'pos') { if ((d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.ry].every(Number.isFinite)) updateRemote(fid, d); else removeRemote(fid); }
             else if (d.t === 'rocket' && (d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
                 const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
                 if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize(), fid);
             }
             else if (d.t === 'dead') { removeRemote(fid); if (d.by === myId) toast("Tu as éliminé " + fid + " !"); }
-            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (MAPS[d.map] ? MAPS[d.map].short : 'Battle Map') + ")", "Rejoindre", () => { closeFriends(); startGame(MAPS[d.map] ? d.map : 'map1'); });
+            else if (d.t === 'getgame') {
+                const g = typeof d.key === 'string' ? customGames[d.key] : null;
+                try {
+                    if (!g) c.send({ t: 'gchunk', key: d.key, n: 0 });
+                    else {
+                        const json = JSON.stringify(g), n = Math.ceil(json.length / 12000);
+                        for (let i = 0; i < n; i++) c.send({ t: 'gchunk', key: d.key, i, n, s: json.slice(i * 12000, (i + 1) * 12000) });
+                    }
+                } catch (e) {}
+            }
+            else if (d.t === 'gchunk' && pendingGame && d.key === pendingGame && Number.isInteger(d.n) && d.n >= 0 && d.n <= 40) {
+                if (d.n === 0) { pendingGame = null; toast("Jeu indisponible (ton ami l'a quitté ?)"); return; }
+                if (Number.isInteger(d.i) && d.i >= 0 && d.i < d.n && typeof d.s === 'string' && !gbuf.parts[d.i]) { gbuf.parts[d.i] = d.s; gbuf.got++; }
+                if (gbuf.got === d.n) {
+                    const key = pendingGame;
+                    pendingGame = null;
+                    try {
+                        customGames[key] = sanitizeGame(JSON.parse(gbuf.parts.join('')), key);
+                        closeFriends();
+                        startGame(key);
+                    } catch (e) { toast("Jeu invalide."); }
+                }
+            }
+            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (validMap(d.map) ? mapLabel(d.map) : 'Battle Map') + ")", "Rejoindre", () => { closeFriends(); joinMap(fid, validMap(d.map) ? d.map : 'map1'); });
             else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
         }
 
@@ -983,10 +1097,10 @@
 
         function joinFriend(fid) {
             const c = conns[fid];
-            const mapId = MAPS[states[fid]] ? states[fid] : currentMap; // on rejoint la map où l'ami joue
+            const mapId = validMap(states[fid]) ? states[fid] : currentMap; // on rejoint la map où l'ami joue
             if (c && c.open) c.send({ t: 'invite', map: mapId });
             closeFriends();
-            startGame(mapId);
+            joinMap(fid, mapId);
         }
         function openFriends() { document.getElementById('friends-modal').style.display = 'flex'; renderFriends(); }
         function closeFriends() { document.getElementById('friends-modal').style.display = 'none'; }
@@ -1000,7 +1114,7 @@
             if (!friends.length) { el.innerHTML = '<p class="text-xs text-slate-500">Aucun ami pour l\'instant.</p>'; return; }
             el.innerHTML = friends.map(f => {
                 const on = !!(conns[f.id] && conns[f.id].open);
-                const st = on ? (states[f.id] ? 'En jeu · ' + (MAPS[states[f.id]] ? MAPS[states[f.id]].short : '') : 'En ligne') : 'Hors ligne';
+                const st = on ? (states[f.id] ? 'En jeu · ' + esc(mapLabel(states[f.id])) : 'En ligne') : 'Hors ligne';
                 return `<div class="flex items-center justify-between bg-slate-800/60 rounded-2xl px-4 py-3">
                     <div class="flex items-center space-x-3">
                         <span class="w-2.5 h-2.5 rounded-full ${on ? 'bg-green-400' : 'bg-slate-600'}"></span>
@@ -1085,6 +1199,7 @@
         function networkTick() {
             const now = performance.now();
             projectileTick(now);
+            customTick(now);
             if (player && worldReady && !inMenu && !dead && now - lastSend > 70) {
                 lastSend = now;
                 broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap, hp: Math.round(hp) });
@@ -1130,6 +1245,7 @@
         }
 
         function fireAt(cx, cy) {
+            if (customRT && !customRT.game.rockets) { customClick(cx, cy); return; }
             if (!rocketEquipped || inMenu || dead || !player || !worldReady) return;
             const now = performance.now();
             if (now - lastShot < ROCKET_COOLDOWN) return;
@@ -1264,7 +1380,7 @@
             const self = by === (myId || 'me');
             if (!self) broadcast({ t: 'dead', by });
             else broadcast({ t: 'dead', by: null });
-            toast(self ? "Tu t'es explosé !" : "Éliminé par " + by);
+            toast(self ? "Tu t'es explosé !" : by === 'script' ? "Éliminé !" : "Éliminé par " + by);
             setTimeout(() => {
                 hp = MAX_HP;
                 dead = false;
@@ -1314,6 +1430,574 @@
             } catch (e) { toast("Sauvegarde invalide."); }
         }
 
+        // ================= STUDIO : créer ses jeux =================
+        const CUSTOM_RE = /^c:[A-Z2-9]{6}:[a-z0-9]{4,12}$/;
+        const validMap = (m) => !!MAPS[m] || (typeof m === 'string' && CUSTOM_RE.test(m));
+        const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const newId = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
+        const gameKey = (g) => 'c:' + (myId || 'LOCAL2') + ':' + g.id;
+        const customGames = {}, gameNames = {};
+        let myGames = [], customRT = null, sbx = null, pendingGame = null, gbuf = { got: 0, parts: [] }, scTarget = null, stInit = false;
+        const ed = { active: false, g: null, sel: null, group: null, meshes: {}, helper: null, drag: null, down: null, test: false, saveTimer: null, target: new THREE.Vector3(0, 1, 0), dist: 28 };
+        const mapLabel = (k) => MAPS[k] ? MAPS[k].short : (gameNames[k] || 'Jeu créé');
+        const curName = () => customGames[currentMap] ? customGames[currentMap].name : undefined;
+        const selPart = () => ed.g && ed.g.parts.find(p => p.id === ed.sel);
+
+        // Nettoie un jeu (venu du disque, d'un import ou d'un ami) : on ne fait jamais confiance aux données reçues
+        function sanitizeGame(o, key) {
+            o = o || {};
+            const num = (v, d, lo, hi) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; };
+            const clean = (v, n) => String(v == null ? '' : v).slice(0, n);
+            const seen = new Set();
+            const g = { id: key ? key.split(':')[2] : (clean(o.id, 12).replace(/[^a-z0-9]/g, '') || newId()), name: clean(o.name || 'Sans titre', 40), rockets: !!o.rockets, script: clean(o.script, 20000), updated: num(o.updated, Date.now(), 0, 9e15), parts: [] };
+            (Array.isArray(o.parts) ? o.parts : []).slice(0, 500).forEach((p) => {
+                if (!p || typeof p !== 'object') return;
+                let id = clean(p.id, 12).replace(/[^a-z0-9]/g, '') || newId();
+                while (seen.has(id)) id = newId();
+                seen.add(id);
+                g.parts.push({
+                    id, name: clean(p.name || 'Pièce', 40), type: ['box', 'sphere', 'cylinder'].includes(p.type) ? p.type : 'box',
+                    x: num(p.x, 0, -5000, 5000), y: num(p.y, 0, -5000, 5000), z: num(p.z, 0, -5000, 5000),
+                    sx: num(p.sx, 4, 0.1, 2000), sy: num(p.sy, 4, 0.1, 2000), sz: num(p.sz, 4, 0.1, 2000), ry: num(p.ry, 0, -360, 360),
+                    color: /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#94a3b8', collide: p.collide !== false, spawn: !!p.spawn, script: clean(p.script, 20000)
+                });
+            });
+            return g;
+        }
+        function newGameData() {
+            return sanitizeGame({ id: newId(), name: 'Mon jeu', parts: [
+                { id: newId(), name: 'Sol', type: 'box', x: 0, y: -0.5, z: 0, sx: 60, sy: 1, sz: 60, color: '#4ade80', collide: true },
+                { id: newId(), name: 'Spawn', type: 'box', x: 0, y: 0.1, z: 0, sx: 4, sy: 0.2, sz: 4, color: '#38bdf8', collide: false, spawn: true }
+            ] });
+        }
+        function loadGames() {
+            let arr = null;
+            try { const raw = store.get('rjs_games'); if (raw) arr = JSON.parse(raw); } catch (e) {}
+            if (!Array.isArray(arr)) { try { arr = JSON.parse(store.get('rjs_games_bak', '[]')); } catch (e) { arr = []; } }
+            myGames = (Array.isArray(arr) ? arr : []).slice(0, 50).map(o => sanitizeGame(o));
+        }
+        function saveGames() { const j = JSON.stringify(myGames); store.set('rjs_games', j); store.set('rjs_games_bak', j); }
+        function publishOwn(g) { const key = gameKey(g); customGames[key] = sanitizeGame(JSON.parse(JSON.stringify(g)), key); return key; }
+
+        // ----- Pièces 3D -----
+        const geoCache = {};
+        function partGeo(t) {
+            return geoCache[t] || (geoCache[t] = t === 'sphere' ? new THREE.SphereGeometry(0.5, 24, 16) : t === 'cylinder' ? new THREE.CylinderGeometry(0.5, 0.5, 1, 28) : new THREE.BoxGeometry(1, 1, 1));
+        }
+        function syncMesh(m, p) {
+            m.position.set(p.x, p.y, p.z);
+            m.scale.set(p.sx, p.sy, p.sz);
+            m.rotation.y = p.ry * Math.PI / 180;
+            m.material.color.set(p.color);
+        }
+        function makePartMesh(p) {
+            const m = new THREE.Mesh(partGeo(p.type), new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.6 }));
+            m.castShadow = true;
+            m.receiveShadow = true;
+            m.userData.pid = p.id;
+            syncMesh(m, p);
+            return m;
+        }
+
+        // Monde jouable construit à partir d'un jeu
+        function buildCustomWorld(key) {
+            const g = customGames[key];
+            const group = new THREE.Group(), sol = [], meshes = {}, parts = {};
+            let minY = 0, spawn = new THREE.Vector3(0, 3, 0), hasSpawn = false;
+            g.parts.forEach((p) => {
+                const m = makePartMesh(p);
+                group.add(m);
+                meshes[p.id] = m;
+                parts[p.id] = Object.assign({}, p);
+                minY = Math.min(minY, p.y - p.sy / 2);
+                if (p.spawn) { m.visible = false; if (!hasSpawn) { hasSpawn = true; spawn.set(p.x, p.y + p.sy / 2 + 0.3, p.z); } }
+                else if (p.collide !== false) sol.push(m);
+            });
+            group.updateMatrixWorld(true);
+            return { group, solids: sol, meshes, parts, game: g, spawn, fallLimit: minY - 40, far: 1500, failed: false,
+                     watch: { touch: new Set(), click: new Set() }, inside: new Set() };
+        }
+        function joinMap(fid, key) {
+            if (MAPS[key]) return startGame(key);
+            if (!CUSTOM_RE.test(key)) return startGame('map1');
+            if (customGames[key] && key.slice(2, 8) === (myId || 'LOCAL2')) return startGame(key); // mon propre jeu
+            const c = conns[fid];
+            if (!c || !c.open) return toast("Ami hors ligne.");
+            pendingGame = key;
+            gbuf = { got: 0, parts: [] };
+            toast("Chargement du jeu de " + fid + "...");
+            c.send({ t: 'getgame', key });
+        }
+
+        // ----- Scripts : exécutés dans une iframe isolée (sans accès au site, aux données ni au réseau) -----
+        const SANDBOX_HTML = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'"><script>
+var P = {}, H = { touch: {}, click: {} }, starts = [];
+function send(m) { parent.postMessage(m, '*'); }
+function safe(f) { try { f(); } catch (e) { send({ k: 'err', t: String(e && e.message || e).slice(0, 120) }); } }
+function Part(i) { this.id = i.id; this.name = i.name; this.type = i.type; this.x = i.x; this.y = i.y; this.z = i.z; this.sx = i.sx; this.sy = i.sy; this.sz = i.sz; this.color = i.color; }
+Part.prototype = {
+  set: function (o) { for (var q in o) this[q] = o[q]; o.k = 'set'; o.id = this.id; send(o); },
+  move: function (x, y, z) { this.set({ x: x, y: y, z: z }); },
+  setColor: function (c) { this.set({ color: c }); },
+  setSize: function (x, y, z) { this.set({ sx: x, sy: y, sz: z }); },
+  rotate: function (d) { this.set({ ry: d }); },
+  setVisible: function (v) { this.set({ visible: !!v }); },
+  setSolid: function (v) { this.set({ collide: !!v }); },
+  destroy: function () { send({ k: 'del', id: this.id }); },
+  onTouch: function (f) { (H.touch[this.id] = H.touch[this.id] || []).push(f); send({ k: 'watch', ev: 'touch', id: this.id }); },
+  onClick: function (f) { (H.click[this.id] = H.click[this.id] || []).push(f); send({ k: 'watch', ev: 'click', id: this.id }); }
+};
+var game = {
+  getPart: function (n) { for (var i in P) if (P[i].name === n) return P[i]; return null; },
+  getParts: function (n) { var r = []; for (var i in P) if (P[i].name === n) r.push(P[i]); return r; },
+  onStart: function (f) { starts.push(f); },
+  every: function (s, f) { setInterval(function () { safe(f); }, Math.max(0.05, s) * 1000); },
+  after: function (s, f) { setTimeout(function () { safe(f); }, s * 1000); },
+  message: function (t) { send({ k: 'msg', t: String(t).slice(0, 200) }); },
+  random: function (a, b) { return a + Math.random() * (b - a); }
+};
+var player = { x: 0, y: 0, z: 0, score: 0,
+  teleport: function (x, y, z) { send({ k: 'tp', x: x, y: y, z: z }); },
+  damage: function (n) { send({ k: 'dmg', n: n }); },
+  heal: function (n) { send({ k: 'heal', n: n }); },
+  addScore: function (n) { this.score += n; send({ k: 'score', v: this.score }); },
+  setSpeed: function (m) { send({ k: 'speed', m: m }); }
+};
+window.addEventListener('message', function (e) {
+  var m = e.data; if (!m) return;
+  if (m.k === 'init') {
+    m.parts.forEach(function (i) { P[i.id] = new Part(i); });
+    m.scripts.forEach(function (s) {
+      try { new Function('part', 'game', 'player', s.code)(s.pid ? P[s.pid] : null, game, player); }
+      catch (err) { send({ k: 'err', t: String(err && err.message || err).slice(0, 120) }); }
+    });
+    starts.forEach(safe);
+  } else if (m.k === 'touch' || m.k === 'click') { (H[m.k][m.id] || []).forEach(safe); }
+  else if (m.k === 'pos') { player.x = m.x; player.y = m.y; player.z = m.z; }
+});
+window.onerror = function (msg) { send({ k: 'err', t: String(msg).slice(0, 120) }); };
+send({ k: 'ready' });
+<\/script>`;
+
+        function sbxPost(m) { try { sbx.f.contentWindow.postMessage(m, '*'); } catch (e) {} }
+        function beginCustom(id, d) {
+            customRT = d;
+            d.watch = { touch: new Set(), click: new Set() };
+            d.inside = new Set();
+            stopScripts();
+            const scripts = [];
+            if (d.game.script) scripts.push({ pid: null, code: d.game.script });
+            d.game.parts.forEach(p => { if (p.script) scripts.push({ pid: p.id, code: p.script }); });
+            if (!scripts.length) return;
+            const f = document.createElement('iframe');
+            f.setAttribute('sandbox', 'allow-scripts');
+            f.style.display = 'none';
+            f.srcdoc = SANDBOX_HTML;
+            sbx = { f, d, scripts, n: 0, t0: performance.now(), lastPos: 0 };
+            document.body.appendChild(f);
+        }
+        function stopScripts() {
+            if (sbx) { sbx.f.remove(); sbx = null; }
+            playerSpeed = BASE_SPEED;
+            document.getElementById('score-hud').style.display = 'none';
+        }
+        window.addEventListener('message', (e) => {
+            if (!sbx || e.source !== sbx.f.contentWindow) return;
+            const m = e.data;
+            if (!m || typeof m.k !== 'string') return;
+            const now = performance.now();
+            if (now - sbx.t0 > 1000) { sbx.t0 = now; sbx.n = 0; }
+            if (++sbx.n > 120) return; // anti-spam
+            const d = sbx.d, ok = Number.isFinite;
+            if (m.k === 'ready') {
+                const parts = d.game.parts.map(p => ({ id: p.id, name: p.name, type: p.type, x: p.x, y: p.y, z: p.z, sx: p.sx, sy: p.sy, sz: p.sz, color: p.color }));
+                sbxPost({ k: 'init', parts, scripts: sbx.scripts });
+            } else if (m.k === 'watch') { if (d.parts[m.id] && (m.ev === 'touch' || m.ev === 'click')) d.watch[m.ev].add(m.id); }
+            else if (m.k === 'set') applySet(d, m);
+            else if (m.k === 'del') {
+                const mesh = d.meshes[m.id];
+                if (mesh) { d.group.remove(mesh); const i = d.solids.indexOf(mesh); if (i >= 0) d.solids.splice(i, 1); delete d.meshes[m.id]; delete d.parts[m.id]; d.watch.touch.delete(m.id); d.watch.click.delete(m.id); }
+            }
+            else if (m.k === 'msg' || m.k === 'err') toast((m.k === 'err' ? 'Erreur script : ' : '') + String(m.t).slice(0, 200));
+            else if (m.k === 'tp' && [m.x, m.y, m.z].every(ok) && player) { player.position.set(m.x, m.y, m.z); velocityY = 0; }
+            else if (m.k === 'dmg' && ok(m.n) && m.n > 0 && !inMenu) hurt(Math.min(200, Math.round(m.n)), 'script');
+            else if (m.k === 'heal' && ok(m.n) && m.n > 0 && !dead) { hp = Math.min(MAX_HP, hp + m.n); updateHpBar(); }
+            else if (m.k === 'score' && ok(m.v)) { document.getElementById('score-val').textContent = Math.round(m.v); document.getElementById('score-hud').style.display = 'block'; }
+            else if (m.k === 'speed' && ok(m.m)) playerSpeed = BASE_SPEED * Math.max(0.2, Math.min(3, m.m));
+        });
+        function applySet(d, m) {
+            const p = d.parts[m.id], mesh = d.meshes[m.id];
+            if (!p || !mesh) return;
+            for (const k of ['x', 'y', 'z', 'ry']) if (Number.isFinite(m[k])) p[k] = Math.max(-9999, Math.min(9999, m[k]));
+            for (const k of ['sx', 'sy', 'sz']) if (Number.isFinite(m[k])) p[k] = Math.max(0.05, Math.min(5000, m[k]));
+            if (typeof m.color === 'string' && /^#[0-9a-f]{6}$/i.test(m.color)) p.color = m.color;
+            if (typeof m.visible === 'boolean') mesh.visible = m.visible;
+            if (typeof m.collide === 'boolean') {
+                const i = d.solids.indexOf(mesh);
+                if (m.collide && i < 0) d.solids.push(mesh);
+                if (!m.collide && i >= 0) d.solids.splice(i, 1);
+            }
+            syncMesh(mesh, p);
+        }
+        // Détection "le joueur touche une pièce" + position envoyée au script
+        function customTick(now) {
+            const d = customRT;
+            if (!d || !sbx || inMenu || dead || !player || !worldReady) return;
+            const px = player.position.x, py = player.position.y, pz = player.position.z;
+            if (now - sbx.lastPos > 200) { sbx.lastPos = now; sbxPost({ k: 'pos', x: px, y: py, z: pz }); }
+            d.watch.touch.forEach((id) => {
+                const m = d.meshes[id];
+                if (!m) return;
+                const dx = px - m.position.x, dz = pz - m.position.z, th = m.rotation.y;
+                const lx = dx * Math.cos(th) - dz * Math.sin(th), lz = dx * Math.sin(th) + dz * Math.cos(th);
+                const hit = Math.abs(lx) < m.scale.x / 2 + 0.45 && Math.abs(lz) < m.scale.z / 2 + 0.45 &&
+                            py + 1.8 > m.position.y - m.scale.y / 2 - 0.05 && py < m.position.y + m.scale.y / 2 + 0.3;
+                if (hit && !d.inside.has(id)) { d.inside.add(id); sbxPost({ k: 'touch', id }); }
+                else if (!hit) d.inside.delete(id);
+            });
+        }
+        function customClick(cx, cy) {
+            const d = customRT;
+            if (!d || !sbx || inMenu || dead) return;
+            raycaster.setFromCamera(new THREE.Vector2(cx / window.innerWidth * 2 - 1, -(cy / window.innerHeight) * 2 + 1), camera);
+            raycaster.far = 1000;
+            const list = [...d.watch.click].map(id => d.meshes[id]).filter(Boolean);
+            const hit = raycaster.intersectObjects(list, false)[0];
+            if (hit) sbxPost({ k: 'click', id: hit.object.userData.pid });
+        }
+
+        // ----- Menu "Studio : mes jeux" -----
+        function openHub() { document.getElementById('hub-modal').style.display = 'flex'; renderHub(); }
+        function closeHub() { document.getElementById('hub-modal').style.display = 'none'; }
+        function renderHub() {
+            const el = document.getElementById('hub-list');
+            if (!myGames.length) { el.innerHTML = '<p class="text-xs text-slate-500">Aucun jeu pour l\'instant. Crée le premier !</p>'; return; }
+            el.innerHTML = myGames.map(g => `<div class="flex items-center justify-between bg-slate-800/60 rounded-2xl px-4 py-3 gap-2">
+                <div style="min-width:0"><div class="font-bold text-white text-sm truncate">${esc(g.name)}</div><div class="text-xs text-slate-400">${g.parts.length} pièces</div></div>
+                <div class="flex gap-1" style="flex-shrink:0">
+                    <button class="st-btn green" onclick="hubPlay('${g.id}')">Jouer</button>
+                    <button class="st-btn" onclick="hubEdit('${g.id}')">Modifier</button>
+                    <button class="st-btn" onclick="hubCopy('${g.id}')" title="Copier le jeu"><i class="fa-regular fa-copy"></i></button>
+                    <button class="st-btn red" onclick="hubDelete('${g.id}')"><i class="fa-solid fa-trash"></i></button>
+                </div></div>`).join('');
+        }
+        function hubNew() {
+            if (myGames.length >= 50) return toast("Limite de 50 jeux atteinte.");
+            const g = newGameData();
+            myGames.push(g);
+            saveGames();
+            closeHub();
+            openEditor(g.id);
+        }
+        function hubEdit(id) { closeHub(); openEditor(id); }
+        function hubPlay(id) {
+            const g = myGames.find(x => x.id === id);
+            if (!g) return;
+            const key = publishOwn(g);
+            closeHub();
+            startGame(key);
+        }
+        function hubDelete(id) {
+            const g = myGames.find(x => x.id === id);
+            if (!g || !confirm('Supprimer le jeu "' + g.name + '" ? (utilise Copier avant si tu veux une sauvegarde)')) return;
+            myGames = myGames.filter(x => x.id !== id);
+            saveGames();
+            renderHub();
+        }
+        function hubCopy(id) {
+            const g = myGames.find(x => x.id === id);
+            if (!g) return;
+            const txt = "RJSG1:" + btoa(unescape(encodeURIComponent(JSON.stringify(g))));
+            try { navigator.clipboard.writeText(txt); toast("Jeu copié. Colle-le dans « Importer » pour le retrouver."); }
+            catch (e) { document.getElementById('hub-import').value = txt; toast("Copie le texte du champ Importer."); }
+        }
+        function hubImport() {
+            const v = document.getElementById('hub-import').value.trim();
+            try {
+                if (!v.startsWith("RJSG1:")) throw new Error("format");
+                const g = sanitizeGame(JSON.parse(decodeURIComponent(escape(atob(v.slice(6))))));
+                g.id = newId();
+                myGames.push(g);
+                saveGames();
+                document.getElementById('hub-import').value = '';
+                renderHub();
+                toast("Jeu importé : " + g.name);
+            } catch (e) { toast("Texte invalide."); }
+        }
+
+        // ----- Éditeur -----
+        function openEditor(id) {
+            const g = myGames.find(x => x.id === id);
+            if (!g) return;
+            stopScripts();
+            customRT = null;
+            broadcast({ t: 'state', ingame: false, map: currentMap });
+            document.getElementById('hotbar').style.display = 'none';
+            document.getElementById('hp-wrap').style.display = 'none';
+            document.getElementById('st-back').style.display = 'none';
+            ed.g = g; ed.sel = null; ed.test = false; ed.active = true;
+            inMenu = true;
+            document.getElementById('menu-overlay').style.display = 'none';
+            document.body.classList.add('studio-edit');
+            document.getElementById('studio-ui').style.display = 'block';
+            document.getElementById('st-name').value = g.name;
+            document.getElementById('st-rockets').checked = !!g.rockets;
+            if (activeGroup) activeGroup.visible = false;
+            if (player) player.visible = false;
+            Object.keys(remotes).forEach(removeRemote);
+            ed.group = new THREE.Group();
+            ed.meshes = {};
+            const grid = new THREE.GridHelper(300, 150, 0x64748b, 0x334155);
+            grid.position.y = 0.03;
+            ed.group.add(grid);
+            g.parts.forEach(addEdMesh);
+            scene.add(ed.group);
+            ed.target.set(0, 1, 0);
+            ed.dist = 28;
+            cameraAngleY = 0.6;
+            scene.fog = null;
+            camera.far = 3000;
+            camera.updateProjectionMatrix();
+            setupStudioInput();
+            studioSelect(null);
+        }
+        function closeEditor() {
+            flushSave();
+            ed.active = false;
+            ed.drag = null;
+            if (ed.group) scene.remove(ed.group);
+            ed.helper = null;
+            if (activeGroup) activeGroup.visible = true;
+            if (player) player.visible = !dead;
+            document.body.classList.remove('studio-edit');
+            document.getElementById('studio-ui').style.display = 'none';
+            const d = mapCache[currentMap];
+            if (d) { camera.far = d.far; camera.updateProjectionMatrix(); }
+        }
+        function studioExit() { closeEditor(); showMenu(); }
+        function studioTest() {
+            const g = ed.g;
+            closeEditor();
+            startGame(publishOwn(g), true);
+        }
+        function studioBack() {
+            const id = ed.g.id;
+            inMenu = true;
+            stopScripts();
+            customRT = null;
+            broadcast({ t: 'state', ingame: false, map: currentMap });
+            openEditor(id);
+        }
+        function addEdMesh(p) {
+            const m = makePartMesh(p);
+            if (p.spawn) { m.material.transparent = true; m.material.opacity = 0.6; }
+            ed.group.add(m);
+            ed.meshes[p.id] = m;
+        }
+        function markDirty() {
+            document.getElementById('st-save').textContent = 'Enregistrement…';
+            clearTimeout(ed.saveTimer);
+            ed.saveTimer = setTimeout(flushSave, 700);
+        }
+        function flushSave() {
+            clearTimeout(ed.saveTimer);
+            if (!ed.g) return;
+            ed.g.updated = Date.now();
+            saveGames();
+            document.getElementById('st-save').textContent = 'Enregistré ✓';
+        }
+        function studioRename(v) { ed.g.name = v.slice(0, 40) || 'Sans titre'; markDirty(); }
+        function studioRockets(v) { ed.g.rockets = !!v; markDirty(); }
+
+        function studioAdd(type) {
+            if (ed.g.parts.length >= 500) return toast("Limite de 500 pièces atteinte.");
+            const sp = type === 'spawn', s = type === 'sphere' ? 3 : 4;
+            const cols = ['#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#f472b6'];
+            const p = { id: newId(), name: sp ? 'Spawn' : ({ box: 'Cube', sphere: 'Sphère', cylinder: 'Cylindre' }[type]), type: sp ? 'box' : type,
+                x: Math.round(ed.target.x), y: sp ? 0.1 : s / 2, z: Math.round(ed.target.z), sx: s, sy: sp ? 0.2 : s, sz: s, ry: 0,
+                color: sp ? '#38bdf8' : cols[Math.floor(Math.random() * cols.length)], collide: !sp, spawn: sp, script: '' };
+            ed.g.parts.push(p);
+            addEdMesh(p);
+            studioSelect(p.id);
+            markDirty();
+        }
+        function studioSelect(id) {
+            ed.sel = id;
+            if (ed.helper) { ed.group.remove(ed.helper); ed.helper = null; }
+            const box = document.getElementById('st-props');
+            if (!id || !ed.meshes[id]) { ed.sel = null; box.style.display = 'none'; return; }
+            ed.helper = new THREE.BoxHelper(ed.meshes[id], 0xfacc15);
+            ed.group.add(ed.helper);
+            box.style.display = 'block';
+            fillProps(selPart());
+        }
+        const PP = ['x', 'y', 'z', 'sx', 'sy', 'sz', 'ry'];
+        function fillProps(p) {
+            document.getElementById('pp-title').textContent = p.spawn ? 'Point d\'apparition' : p.type;
+            document.getElementById('pp-name').value = p.name;
+            PP.forEach(k => { document.getElementById('pp-' + k).value = +(+p[k]).toFixed(2); });
+            document.getElementById('pp-color').value = p.color;
+            document.getElementById('pp-collide').checked = p.collide !== false;
+        }
+        function studioProp() {
+            const p = selPart();
+            if (!p) return;
+            p.name = document.getElementById('pp-name').value.slice(0, 40);
+            PP.forEach(k => {
+                const v = parseFloat(document.getElementById('pp-' + k).value);
+                if (Number.isFinite(v)) p[k] = k[0] === 's' ? Math.max(0.1, v) : v;
+            });
+            p.color = document.getElementById('pp-color').value;
+            p.collide = document.getElementById('pp-collide').checked;
+            syncMesh(ed.meshes[p.id], p);
+            if (ed.helper) ed.helper.update();
+            markDirty();
+        }
+        function studioDelete() {
+            const id = ed.sel;
+            if (!id) return;
+            ed.group.remove(ed.meshes[id]);
+            delete ed.meshes[id];
+            ed.g.parts = ed.g.parts.filter(p => p.id !== id);
+            studioSelect(null);
+            markDirty();
+        }
+        function studioDup() {
+            const p = selPart();
+            if (!p || ed.g.parts.length >= 500) return;
+            const c = JSON.parse(JSON.stringify(p));
+            c.id = newId(); c.x += 1; c.z += 1;
+            ed.g.parts.push(c);
+            addEdMesh(c);
+            studioSelect(c.id);
+            markDirty();
+        }
+        function studioFocus() { const m = ed.meshes[ed.sel]; if (m) ed.target.copy(m.position); }
+
+        // Caméra du studio (WASD / joystick = déplacer, glisser = tourner, molette = zoom)
+        function studioTick() {
+            const sp = Math.max(0.05, ed.dist * 0.012);
+            let ix = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), iz = (keys.forward ? 1 : 0) - (keys.backward ? 1 : 0);
+            if (joystickActive) { ix += joystickData.x; iz -= joystickData.y; }
+            const fx = -Math.sin(cameraAngleX), fz = -Math.cos(cameraAngleX), rx = Math.cos(cameraAngleX), rz = -Math.sin(cameraAngleX);
+            ed.target.x += (fx * iz + rx * ix) * sp;
+            ed.target.z += (fz * iz + rz * ix) * sp;
+            camera.position.set(
+                ed.target.x + ed.dist * Math.sin(cameraAngleX) * Math.cos(cameraAngleY),
+                ed.target.y + ed.dist * Math.sin(cameraAngleY),
+                ed.target.z + ed.dist * Math.cos(cameraAngleX) * Math.cos(cameraAngleY));
+            camera.lookAt(ed.target);
+            if (ed.helper) ed.helper.update();
+        }
+        function setupStudioInput() {
+            if (stInit) return;
+            stInit = true;
+            const cv = renderer.domElement;
+            const aim = (e) => { raycaster.setFromCamera(new THREE.Vector2(e.clientX / window.innerWidth * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1), camera); raycaster.far = 5000; };
+            cv.addEventListener('pointerdown', (e) => {
+                if (!ed.active || (e.pointerType === 'mouse' && e.button !== 0)) return;
+                aim(e);
+                const hit = raycaster.intersectObjects(Object.values(ed.meshes), false)[0];
+                if (!hit) { ed.down = { x: e.clientX, y: e.clientY }; return; }
+                const id = hit.object.userData.pid;
+                if (ed.sel !== id) studioSelect(id);
+                const p = selPart();
+                if (!p) return;
+                const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -p.y), pt = new THREE.Vector3();
+                if (!raycaster.ray.intersectPlane(plane, pt)) return;
+                ed.drag = { plane, offX: p.x - pt.x, offZ: p.z - pt.z, moved: false };
+            });
+            window.addEventListener('pointermove', (e) => {
+                if (!ed.drag) return;
+                aim(e);
+                const pt = new THREE.Vector3(), p = selPart();
+                if (!p || !raycaster.ray.intersectPlane(ed.drag.plane, pt)) return;
+                p.x = Math.round((pt.x + ed.drag.offX) * 2) / 2;
+                p.z = Math.round((pt.z + ed.drag.offZ) * 2) / 2;
+                ed.drag.moved = true;
+                syncMesh(ed.meshes[p.id], p);
+                ed.helper.update();
+                fillProps(p);
+            });
+            window.addEventListener('pointerup', (e) => {
+                if (ed.drag) { if (ed.drag.moved) markDirty(); ed.drag = null; }
+                else if (ed.down && ed.active && Math.hypot(e.clientX - ed.down.x, e.clientY - ed.down.y) < 6) studioSelect(null);
+                ed.down = null;
+            });
+            cv.addEventListener('wheel', (e) => {
+                if (!ed.active) return;
+                e.preventDefault();
+                ed.dist = Math.max(3, Math.min(600, ed.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+            }, { passive: false });
+        }
+
+        // ----- Éditeur de scripts -----
+        const SCRIPT_HELP = [
+"SCRIPTS (JavaScript)", "",
+"Variables disponibles :",
+"  part    la pièce du script (null dans le script du jeu)",
+"  game    le jeu",
+"  player  le joueur", "",
+"PIÈCE : part.x  part.y  part.z  part.name",
+"  part.move(x, y, z)",
+"  part.rotate(degrés)",
+"  part.setSize(x, y, z)",
+"  part.setColor('#ff0000')",
+"  part.setVisible(false)",
+"  part.setSolid(false)",
+"  part.destroy()",
+"  part.onTouch(function(){ ... })  le joueur touche",
+"  part.onClick(function(){ ... })  clic sur la pièce",
+"     (si le lance-roquettes est désactivé)", "",
+"JEU :",
+"  game.getPart('Nom')   game.getParts('Nom')",
+"  game.onStart(fn)   game.every(sec, fn)",
+"  game.after(sec, fn)",
+"  game.message('texte')   game.random(min, max)", "",
+"JOUEUR : player.x  player.y  player.z  player.score",
+"  player.teleport(x, y, z)",
+"  player.damage(n)   player.heal(n)",
+"  player.addScore(n)   player.setSpeed(1.5)", "",
+"EXEMPLES", "",
+"// Pièce piégée (script sur la pièce)",
+"part.onTouch(function(){ player.damage(100); });", "",
+"// Pièce à ramasser",
+"part.onTouch(function(){",
+"  player.addScore(10); part.destroy();",
+"});", "",
+"// Plateforme qui monte et descend",
+"var h = part.y, up = true;",
+"game.every(0.05, function(){",
+"  h += up ? 0.1 : -0.1;",
+"  if (h > 12 || h < 1) up = !up;",
+"  part.move(part.x, h, part.z);",
+"});", "",
+"// Téléporteur",
+"part.onTouch(function(){",
+"  player.teleport(0, 5, 30);",
+"  game.message('Whoosh !');",
+"});", "",
+"Les scripts tournent chez chaque joueur (le score et",
+"les pièces détruites ne sont pas partagés)."
+        ].join("\n");
+        function openScript(id) {
+            const p = id ? selPart() : null;
+            if (id && !p) return;
+            scTarget = id;
+            document.getElementById('sc-title').textContent = id ? 'Script de la pièce : ' + p.name : 'Script du jeu';
+            document.getElementById('sc-code').value = id ? (p.script || '') : (ed.g.script || '');
+            document.getElementById('sc-help').textContent = SCRIPT_HELP;
+            document.getElementById('script-modal').style.display = 'flex';
+        }
+        function closeScript() { document.getElementById('script-modal').style.display = 'none'; }
+        function saveScript() {
+            const code = document.getElementById('sc-code').value.slice(0, 20000);
+            if (scTarget) { const p = selPart(); if (p) p.script = code; } else ed.g.script = code;
+            markDirty();
+            closeScript();
+            toast("Script enregistré");
+        }
+
         // Hauteur du sol sous (x,z) en partant de fromY vers le bas
         function groundAt(x, z, fromY) {
             raycaster.set(new THREE.Vector3(x, fromY, z), new THREE.Vector3(0, -1, 0));
@@ -1360,6 +2044,7 @@
         // Boucle d'animation principale
         function animate() {
             requestAnimationFrame(animate);
+            if (ed.active) { studioTick(); renderer.render(scene, camera); return; }
 
             if (player && worldReady) {
                 moveDirection.set(0, 0, 0);
