@@ -15,6 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <!-- PeerJS (connexion P2P entre amis) -->
     <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Clonage des modèles animés (skins des amis) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -195,7 +197,10 @@
                     <span class="inline-block bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-xl">Jouer</span>
                 </button>
             </div>
-            <div class="mt-6 text-center space-x-3">
+            <div class="mt-6 flex flex-wrap justify-center gap-3">
+                <button onclick="openShop()" class="bg-pink-600 hover:bg-pink-500 border border-pink-400/50 text-white font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
+                    <i class="fa-solid fa-bag-shopping mr-2"></i>Boutique
+                </button>
                 <button onclick="openHub()" class="bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/50 text-white font-semibold px-6 py-3 rounded-2xl shadow-lg transition active:scale-95">
                     <i class="fa-solid fa-hammer mr-2"></i>Studio
                 </button>
@@ -240,6 +245,16 @@
             </div>
         </div>
         <div class="text-xs text-slate-300" style="position:fixed; bottom:10px; left:50%; transform:translateX(-50%); text-align:center; text-shadow:0 1px 3px #000; width:90%; pointer-events:none">Clique une pièce pour la choisir, glisse-la pour la déplacer · WASD / joystick : caméra · glisser : tourner · molette : zoom</div>
+    </div>
+
+    <div id="shop-modal" class="interactive" style="display:none; position:fixed; inset:0; z-index:70; background:rgba(2,6,23,0.85); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px">
+        <div class="st-panel" style="position:relative; width:100%; max-width:520px; max-height:90vh; overflow-y:auto; padding:20px; touch-action:pan-y">
+            <div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold text-white"><i class="fa-solid fa-bag-shopping text-pink-400 mr-2"></i>Boutique : skins</h2><button class="st-btn" onclick="closeShop()"><i class="fa-solid fa-xmark"></i></button></div>
+            <div id="shop-grid" class="grid grid-cols-2 gap-3 mb-5"></div>
+            <p class="text-xs text-slate-400 mb-2"><i class="fa-solid fa-key mr-1"></i>Tu as un code secret ?</p>
+            <div class="flex gap-2"><input id="shop-code" class="st-in" placeholder="Code secret" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')submitSecret()"><button class="st-btn primary" onclick="submitSecret()">Valider</button></div>
+            <div id="shop-msg" class="mt-3 text-sm"></div>
+        </div>
     </div>
 
     <div id="hub-modal" class="interactive" style="display:none; position:fixed; inset:0; z-index:70; background:rgba(2,6,23,0.85); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:16px">
@@ -619,42 +634,46 @@
             });
         }
 
-        function loadPlayer() {
-            return new Promise((resolve) => {
-                new THREE.GLTFLoader().load(
-                    'player.glb',
-                    (gltf) => {
-                        const model = gltf.scene;
-                        model.traverse((child) => {
-                            if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; }
-                        });
-                        model.rotation.y = PLAYER_FACING_OFFSET; // corrige le sens dans lequel le modèle regarde
-                        // Normaliser : hauteur fixe, centré en x/z, pieds exactement à y = 0
-                        const PLAYER_HEIGHT = 1.8;
-                        model.updateMatrixWorld(true);
-                        let pBox = new THREE.Box3().setFromObject(model);
-                        const pSize = pBox.getSize(new THREE.Vector3());
-                        if (pSize.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / pSize.y);
-                        model.updateMatrixWorld(true);
-                        pBox = new THREE.Box3().setFromObject(model);
-                        const pCenter = pBox.getCenter(new THREE.Vector3());
-                        model.position.x -= pCenter.x;
-                        model.position.z -= pCenter.z;
-                        model.position.y -= pBox.min.y;
-                        player = new THREE.Group();
-                        player.add(model);
-                        player.position.set(0, 5, 0);
-                        scene.add(player);
-                        resolve();
-                    },
-                    undefined,
-                    () => {
-                        console.warn("player.glb introuvable à la racine. Création de l'avatar Roblox par défaut.");
-                        createProceduralPlayer();
-                        resolve();
-                    }
-                );
+        // Prépare un modèle de joueur : hauteur fixe, centré, pieds à y = 0, bon sens
+        const PLAYER_HEIGHT = 1.8;
+        function normalizeSkin(model, facing) {
+            model.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; } });
+            model.rotation.y = facing;
+            model.updateMatrixWorld(true);
+            let b = new THREE.Box3().setFromObject(model);
+            const sz = b.getSize(new THREE.Vector3());
+            if (sz.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / sz.y);
+            model.updateMatrixWorld(true);
+            b = new THREE.Box3().setFromObject(model);
+            const c = b.getCenter(new THREE.Vector3());
+            model.position.x -= c.x;
+            model.position.z -= c.z;
+            model.position.y -= b.min.y;
+            return model;
+        }
+        function loadSkinModel(sk) {
+            if (skinCache[sk.file]) return Promise.resolve(skinCache[sk.file]);
+            return new Promise((resolve, reject) => {
+                new THREE.GLTFLoader().load(sk.file, (gltf) => {
+                    skinCache[sk.file] = normalizeSkin(gltf.scene, sk.facing);
+                    resolve(skinCache[sk.file]);
+                }, undefined, reject);
             });
+        }
+        function loadPlayer() {
+            const sk = skinById(curSkin), def = skinById('skin0');
+            return loadSkinModel(sk)
+                .catch(() => (sk === def ? Promise.reject() : loadSkinModel(def)))
+                .then((model) => {
+                    player = new THREE.Group();
+                    player.add(model);
+                    player.position.set(0, 5, 0);
+                    scene.add(player);
+                })
+                .catch(() => {
+                    console.warn("player.glb introuvable à la racine. Création de l'avatar par défaut.");
+                    createProceduralPlayer();
+                });
         }
 
         // Monde procédural de secours (Garanti sans chute)
@@ -1140,6 +1159,7 @@
                 const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), mat);
                 m.position.set(x, y, 0);
                 m.castShadow = true;
+                (g.userData.body = g.userData.body || []).push(m);
                 g.add(m);
             };
             part(0.8, 1, 0.4, bodyMat, 0, 1.0);
@@ -1187,6 +1207,7 @@
             r.target.set(d.x, d.y, d.z);
             r.ry = d.ry;
             r.last = performance.now();
+            if (typeof d.sk === 'string' && d.sk !== r.skin) setRemoteSkin(fid, r, d.sk);
             if (Number.isFinite(d.hp) && d.hp !== r.hp) { r.hp = d.hp; drawLabel(r.group, d.hp); }
         }
         function removeRemote(fid) {
@@ -1202,7 +1223,7 @@
             customTick(now);
             if (player && worldReady && !inMenu && !dead && now - lastSend > 70) {
                 lastSend = now;
-                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap, hp: Math.round(hp) });
+                broadcast({ t: 'pos', x: +player.position.x.toFixed(2), y: +player.position.y.toFixed(2), z: +player.position.z.toFixed(2), ry: +player.rotation.y.toFixed(2), m: currentMap, hp: Math.round(hp), sk: curSkin });
             }
             for (const id in remotes) {
                 const r = remotes[id];
@@ -1996,6 +2017,85 @@ send({ k: 'ready' });
             markDirty();
             closeScript();
             toast("Script enregistré");
+        }
+
+        // ================= BOUTIQUE : SKINS =================
+        const SECRET_CODE = 'LARP666';   // code qui débloque le skin secret (visible dans le code source : ce n'est pas une vraie sécurité)
+        const SKINS = [
+            { id: 'skin0', name: 'Classique', file: 'player.glb',  icon: 'fa-user',           grad: 'from-slate-600 to-slate-500', facing: PLAYER_FACING_OFFSET },
+            { id: 'skin1', name: 'Skin 1',    file: 'player1.glb', icon: 'fa-user-astronaut', grad: 'from-sky-500 to-indigo-500',  facing: PLAYER_FACING_OFFSET },
+            { id: 'skin2', name: 'Skin 2',    file: 'player2.glb', icon: 'fa-user-ninja',     grad: 'from-emerald-500 to-teal-500', facing: PLAYER_FACING_OFFSET },
+            { id: 'skin3', name: 'Secret',    file: 'player3.glb', icon: 'fa-user-secret',    grad: 'from-pink-600 to-red-600',    facing: PLAYER_FACING_OFFSET, locked: true }
+        ];
+        const skinCache = {};
+        const skinById = (id) => SKINS.find(k => k.id === id) || SKINS[0];
+        let skinUnlocked = store.get('rjs_skin3') === '1';
+        const isUsable = (k) => !(k.locked && !skinUnlocked);
+        let curSkin = (() => { const k = skinById(store.get('rjs_skin', 'skin0')); return isUsable(k) ? k.id : 'skin0'; })();
+
+        function openShop() { document.getElementById('shop-modal').style.display = 'flex'; document.getElementById('shop-msg').innerHTML = ''; renderShop(); }
+        function closeShop() { document.getElementById('shop-modal').style.display = 'none'; }
+
+        function renderShop() {
+            document.getElementById('shop-grid').innerHTML = SKINS.map((k) => {
+                const locked = !isUsable(k), on = k.id === curSkin;
+                const btn = locked ? '<button class="st-btn" disabled style="opacity:.5">Verrouillé</button>'
+                    : on ? '<button class="st-btn green" disabled>Équipé ✓</button>'
+                    : `<button class="st-btn primary" onclick="equipSkin('${k.id}')">Équiper</button>`;
+                return `<div class="bg-slate-800/60 rounded-2xl p-3 text-center border ${on ? 'border-pink-400' : 'border-transparent'}">
+                    <div class="h-20 rounded-xl flex items-center justify-center text-3xl text-white mb-2 bg-gradient-to-br ${k.grad}"><i class="fa-solid ${locked ? 'fa-lock' : k.icon}"></i></div>
+                    <div class="font-bold text-white text-sm">${locked ? '???' : k.name}</div>
+                    <div class="text-xs text-slate-500 mb-2">${locked ? 'Skin secret' : k.file}</div>
+                    ${btn}</div>`;
+            }).join('');
+        }
+
+        function equipSkin(id) {
+            const k = skinById(id);
+            if (!isUsable(k) || !player) return;
+            toast("Chargement du skin...");
+            loadSkinModel(k).then((model) => {
+                while (player.children.length) player.remove(player.children[0]);
+                player.add(model);
+                curSkin = k.id;
+                store.set('rjs_skin', k.id);
+                renderShop();
+                toast("Skin équipé : " + k.name);
+            }).catch(() => toast(k.file + " est introuvable à la racine du site."));
+        }
+
+        function submitSecret() {
+            const input = document.getElementById('shop-code'), msg = document.getElementById('shop-msg');
+            const v = input.value.trim().toUpperCase();
+            if (!v) return;
+            input.value = '';
+            if (v === SECRET_CODE.toUpperCase()) {
+                skinUnlocked = true;
+                store.set('rjs_skin3', '1');
+                msg.innerHTML = '<div class="rounded-2xl p-4 text-center font-semibold text-white animate-pulse" style="background:linear-gradient(135deg,#db2777,#7c3aed)">😈 Hehehe… tu as trouvé le code secret !<br>Tu es un sacré petit coquin, toi… 🔥<br><span class="text-xs font-normal">Le skin interdit est à toi. Garde ça entre nous 🤫</span></div>';
+                toast("😈 Petit coquin ! Skin secret débloqué !");
+                renderShop();
+            } else {
+                msg.innerHTML = '<div class="text-center text-red-400">Mauvais code… Tu chauffes pas du tout 😏</div>';
+            }
+        }
+
+        // Les amis voient le skin que je porte (chacun charge le .glb correspondant chez lui)
+        function setRemoteSkin(fid, r, id) {
+            const k = SKINS.find(x => x.id === id);
+            if (!k) return;
+            r.skin = id;
+            loadSkinModel(k).then((model) => {
+                if (remotes[fid] !== r || r.skin !== id) return;
+                const g = r.group;
+                if (g.userData.skinWrap) g.remove(g.userData.skinWrap);
+                const wrap = new THREE.Group();
+                wrap.add(THREE.SkeletonUtils ? THREE.SkeletonUtils.clone(model) : model.clone(true));
+                wrap.scale.setScalar(1 / g.scale.x);
+                g.add(wrap);
+                g.userData.skinWrap = wrap;
+                (g.userData.body || []).forEach(m => { m.visible = false; }); // on cache l'avatar en blocs
+            }).catch(() => {}); // fichier absent chez cet ami : il garde l'avatar en blocs
         }
 
         // Hauteur du sol sous (x,z) en partant de fromY vers le bas
