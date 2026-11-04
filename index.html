@@ -75,6 +75,16 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.35);
             pointer-events: none;
         }
+        /* Bouton de saut : fixe en bas à droite (indépendant de l'en-tête et de la barre Safari) */
+        #jump-btn {
+            position: fixed;
+            right: 32px;
+            bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+            z-index: 20;
+        }
+        @media (max-width: 480px) {
+            #jump-btn { right: 16px; }
+        }
         /* Barre d'outils (hotbar) */
         #hotbar { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); display: none; gap: 8px; z-index: 20; pointer-events: auto; }
         #hotbar .slot { position: relative; width: 64px; height: 64px; border-radius: 14px; background: rgba(15,23,42,0.82); border: 2px solid rgba(255,255,255,0.25); color: #fff; font-size: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; touch-action: none; transition: transform .1s, border-color .1s; }
