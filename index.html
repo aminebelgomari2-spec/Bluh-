@@ -636,13 +636,13 @@
 
         // Prépare un modèle de joueur : hauteur fixe, centré, pieds à y = 0, bon sens
         const PLAYER_HEIGHT = 1.8;
-        function normalizeSkin(model, facing) {
+        function normalizeSkin(model, facing, scale) {
             model.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.frustumCulled = false; } });
             model.rotation.y = facing;
             model.updateMatrixWorld(true);
             let b = new THREE.Box3().setFromObject(model);
             const sz = b.getSize(new THREE.Vector3());
-            if (sz.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT / sz.y);
+            if (sz.y > 0) model.scale.multiplyScalar(PLAYER_HEIGHT * (scale || 1) / sz.y);
             model.updateMatrixWorld(true);
             b = new THREE.Box3().setFromObject(model);
             const c = b.getCenter(new THREE.Vector3());
@@ -655,7 +655,7 @@
             if (skinCache[sk.file]) return Promise.resolve(skinCache[sk.file]);
             return new Promise((resolve, reject) => {
                 new THREE.GLTFLoader().load(sk.file, (gltf) => {
-                    skinCache[sk.file] = normalizeSkin(gltf.scene, sk.facing);
+                    skinCache[sk.file] = normalizeSkin(gltf.scene, sk.facing, sk.scale);
                     resolve(skinCache[sk.file]);
                 }, undefined, reject);
             });
@@ -2023,7 +2023,7 @@ send({ k: 'ready' });
         const SECRET_CODE = 'LARP666';   // code qui débloque le skin secret (visible dans le code source : ce n'est pas une vraie sécurité)
         const SKINS = [
             { id: 'skin0', name: 'Classique', file: 'player.glb',  icon: 'fa-user',           grad: 'from-slate-600 to-slate-500', facing: PLAYER_FACING_OFFSET },
-            { id: 'skin1', name: 'Skin 1',    file: 'player1.glb', icon: 'fa-user-astronaut', grad: 'from-sky-500 to-indigo-500',  facing: PLAYER_FACING_OFFSET },
+            { id: 'skin1', name: 'Skin 1',    file: 'player1.glb', icon: 'fa-user-astronaut', grad: 'from-sky-500 to-indigo-500',  facing: PLAYER_FACING_OFFSET, scale: 0.1 },
             { id: 'skin2', name: 'Skin 2',    file: 'player2.glb', icon: 'fa-user-ninja',     grad: 'from-emerald-500 to-teal-500', facing: PLAYER_FACING_OFFSET },
             { id: 'skin3', name: 'Secret',    file: 'player3.glb', icon: 'fa-user-secret',    grad: 'from-pink-600 to-red-600',    facing: PLAYER_FACING_OFFSET, locked: true }
         ];
@@ -2094,6 +2094,8 @@ send({ k: 'ready' });
                 wrap.scale.setScalar(1 / g.scale.x);
                 g.add(wrap);
                 g.userData.skinWrap = wrap;
+                const lab = g.children.find(c => c.isSprite);
+                if (lab) lab.position.y = Math.max(0.7, 2.5 * (k.scale || 1)); // le nom suit la taille du skin
                 (g.userData.body || []).forEach(m => { m.visible = false; }); // on cache l'avatar en blocs
             }).catch(() => {}); // fichier absent chez cet ami : il garde l'avatar en blocs
         }
