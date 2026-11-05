@@ -927,7 +927,10 @@
             return c;
         }
         const isFriend = (id) => friends.some(f => f.id === id);
-        const saveBackup = () => store.set('rjs_backup', JSON.stringify({ v: 1, id: myId, friends: friends.map(f => f.id) }));
+        const fname = (id) => { const f = friends.find(x => x.id === id); return (f && f.name) ? String(f.name).slice(0, 20) : id; }; // nom donné à un ami (sinon son code)
+        const friendNames = () => { const o = {}; friends.forEach(f => { if (f.name) o[f.id] = String(f.name).slice(0, 20); }); return o; };
+        const withName = (id, names) => (names && typeof names[id] === 'string' && names[id].trim()) ? { id, name: names[id].trim().slice(0, 20) } : { id };
+        const saveBackup = () => store.set('rjs_backup', JSON.stringify({ v: 1, id: myId, friends: friends.map(f => f.id), names: friendNames() }));
         const saveFriends = () => { store.set('rjs_friends', JSON.stringify(friends)); saveBackup(); };
 
         function setNet(text, ok) {
@@ -974,7 +977,7 @@
                     const b = JSON.parse(store.get('rjs_backup', 'null'));
                     if (b) {
                         if (!myId && CODE_RE.test(b.id)) { myId = b.id; store.set('rjs_myid', myId); }
-                        if (!listOk && Array.isArray(b.friends)) { friends = b.friends.filter(id => CODE_RE.test(id)).map(id => ({ id })); saveFriends(); }
+                        if (!listOk && Array.isArray(b.friends)) { friends = b.friends.filter(id => CODE_RE.test(id)).map(id => withName(id, b.names)); saveFriends(); }
                     }
                 } catch (e) {}
             }
@@ -1092,7 +1095,7 @@
                 const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
                 if (dir.lengthSq() > 0.5) sniperBullet(new THREE.Vector3(d.x, d.y, d.z), dir.normalize(), fid);
             }
-            else if (d.t === 'dead') { removeRemote(fid); if (d.by === myId) toast("Tu as éliminé " + fid + " !"); }
+            else if (d.t === 'dead') { removeRemote(fid); if (d.by === myId) toast("Tu as éliminé " + fname(fid) + " !"); }
             else if (d.t === 'getgame') {
                 const g = typeof d.key === 'string' ? customGames[d.key] : null;
                 try {
@@ -1116,7 +1119,7 @@
                     } catch (e) { toast("Jeu invalide."); }
                 }
             }
-            else if (d.t === 'invite') toast(fid + " t'invite à jouer (" + (validMap(d.map) ? mapLabel(d.map) : 'Battle Map') + ")", "Rejoindre", () => { closeFriends(); joinMap(fid, validMap(d.map) ? d.map : 'map1'); });
+            else if (d.t === 'invite') toast(fname(fid) + " t'invite à jouer (" + (validMap(d.map) ? mapLabel(d.map) : 'Battle Map') + ")", "Rejoindre", () => { closeFriends(); joinMap(fid, validMap(d.map) ? d.map : 'map1'); });
             else if (d.t === 'unfriend') { removeFriend(fid, true); toast(fid + " t'a retiré de ses amis"); }
         }
 
@@ -1138,6 +1141,20 @@
             delete states[fid];
             removeRemote(fid);
             renderFriends();
+        }
+
+        // Renommer un ami (le nom reste sur ton appareil : lui ne le voit pas)
+        function renameFriend(fid) {
+            const f = friends.find(x => x.id === fid);
+            if (!f) return;
+            const v = prompt("Nom pour cet ami (" + fid + ") :\nLaisse vide pour revenir au code.", f.name || '');
+            if (v === null) return;
+            const n = v.trim().slice(0, 20);
+            if (n) f.name = n; else delete f.name;
+            saveFriends();
+            renderFriends();
+            const r = remotes[fid];
+            if (r) { r.group.userData.label.name = fname(fid); drawLabel(r.group, r.hp); }
         }
 
         function addFriendFromInput() {
@@ -1179,10 +1196,11 @@
                 return `<div class="flex items-center justify-between bg-slate-800/60 rounded-2xl px-4 py-3">
                     <div class="flex items-center space-x-3">
                         <span class="w-2.5 h-2.5 rounded-full ${on ? 'bg-green-400' : 'bg-slate-600'}"></span>
-                        <div><div class="font-mono font-bold tracking-widest text-white text-sm">${f.id}</div><div class="text-xs text-slate-400">${st}</div></div>
+                        <div>${f.name ? `<div class="font-bold text-white text-sm">${esc(fname(f.id))}</div><div class="text-xs text-slate-400"><span class="font-mono tracking-widest">${f.id}</span> · ${st}</div>` : `<div class="font-mono font-bold tracking-widest text-white text-sm">${f.id}</div><div class="text-xs text-slate-400">${st}</div>`}</div>
                     </div>
                     <div class="flex items-center space-x-2">
                         <button onclick="joinFriend('${f.id}')" ${on ? '' : 'disabled'} class="px-3 py-2 rounded-xl text-xs font-semibold ${on ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 text-slate-600'}">Rejoindre</button>
+                        <button onclick="renameFriend('${f.id}')" title="Renommer" class="px-3 py-2 rounded-xl text-xs bg-slate-800 hover:bg-slate-700 text-slate-300"><i class="fa-solid fa-pen"></i></button>
                         <button onclick="removeFriend('${f.id}')" class="px-3 py-2 rounded-xl text-xs bg-slate-800 hover:bg-red-600/80 text-slate-300"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>`;
@@ -1213,7 +1231,7 @@
             const cv = document.createElement('canvas');
             cv.width = 256; cv.height = 80;
             const tex = new THREE.CanvasTexture(cv);
-            g.userData.label = { cv, tex, name: fid };
+            g.userData.label = { cv, tex, name: fname(fid) };
             drawLabel(g, 100);
             const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
             label.scale.set(1.8, 0.56, 1);
@@ -1228,7 +1246,9 @@
             ctx.fillStyle = 'rgba(15,23,42,0.75)';
             ctx.fillRect(0, 0, 256, 80);
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 34px monospace';
+            let fs = 34; // le texte rétrécit si le nom est long
+            ctx.font = 'bold ' + fs + 'px monospace';
+            while (fs > 14 && ctx.measureText(name).width > 240) { fs -= 2; ctx.font = 'bold ' + fs + 'px monospace'; }
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(name, 128, 26);
@@ -1537,7 +1557,7 @@
             const self = by === (myId || 'me');
             if (!self) broadcast({ t: 'dead', by });
             else broadcast({ t: 'dead', by: null });
-            toast(self ? "Tu t'es explosé !" : by === 'script' ? "Éliminé !" : "Éliminé par " + by);
+            toast(self ? "Tu t'es explosé !" : by === 'script' ? "Éliminé !" : "Éliminé par " + fname(by));
             setTimeout(() => {
                 hp = MAX_HP;
                 dead = false;
@@ -1568,7 +1588,7 @@
         // ----- Sauvegarde manuelle (code + amis) -----
         function exportBackup() {
             if (!myId) return toast("Ton code n'est pas encore prêt.");
-            const txt = "RJS1:" + btoa(JSON.stringify({ id: myId, friends: friends.map(f => f.id) }));
+            const txt = "RJS1:" + btoa(unescape(encodeURIComponent(JSON.stringify({ id: myId, friends: friends.map(f => f.id), names: friendNames() }))));
             try { navigator.clipboard.writeText(txt); toast("Sauvegarde copiée. Garde-la précieusement."); }
             catch (e) { const i = document.getElementById('backup-input'); i.value = txt; i.select(); toast("Copie le texte manuellement."); }
         }
@@ -1576,12 +1596,13 @@
             const v = document.getElementById('backup-input').value.trim();
             try {
                 if (!v.startsWith("RJS1:")) throw new Error("format");
-                const o = JSON.parse(atob(v.slice(5)));
+                const o = JSON.parse(decodeURIComponent(escape(atob(v.slice(5)))));
                 if (!CODE_RE.test(o.id) || !Array.isArray(o.friends)) throw new Error("contenu");
                 const f = o.friends.filter(id => CODE_RE.test(id));
                 store.set('rjs_myid', o.id);
-                store.set('rjs_friends', JSON.stringify(f.map(id => ({ id }))));
-                store.set('rjs_backup', JSON.stringify({ v: 1, id: o.id, friends: f }));
+                const fr = f.map(id => withName(id, o.names));
+                store.set('rjs_friends', JSON.stringify(fr));
+                store.set('rjs_backup', JSON.stringify({ v: 1, id: o.id, friends: f, names: Object.fromEntries(fr.filter(x => x.name).map(x => [x.id, x.name])) }));
                 toast("Sauvegarde restaurée, rechargement...");
                 setTimeout(() => location.reload(), 900);
             } catch (e) { toast("Sauvegarde invalide."); }
@@ -1682,7 +1703,7 @@
             if (!c || !c.open) return toast("Ami hors ligne.");
             pendingGame = key;
             gbuf = { got: 0, parts: [] };
-            toast("Chargement du jeu de " + fid + "...");
+            toast("Chargement du jeu de " + fname(fid) + "...");
             c.send({ t: 'getgame', key });
         }
 
