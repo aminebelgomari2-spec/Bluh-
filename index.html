@@ -85,6 +85,19 @@
         @media (max-width: 480px) {
             #jump-btn { right: 16px; }
         }
+        /* Sniper : boutons Viser / Tirer + viseur */
+        .act-btn { position: fixed; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 9999px; color: #fff; font-size: 20px; font-weight: 700; border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 8px 20px rgba(0,0,0,0.4); touch-action: none; }
+        .act-btn span { font-size: 10px; margin-top: 1px; }
+        .act-btn:active { transform: scale(0.92); }
+        #aim-btn { right: 32px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(14,116,144,0.92); }
+        #aim-btn.on { background: rgba(250,204,21,0.95); color: #1e293b; border-color: #fff; }
+        #fire-btn { right: 108px; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); background: rgba(220,38,38,0.95); }
+        #crosshair { position: fixed; top: 50%; left: 50%; width: 110px; height: 110px; margin: -55px 0 0 -55px; border: 2px solid rgba(239,68,68,0.8); border-radius: 50%; display: none; z-index: 19; pointer-events: none; }
+        #crosshair::before { content: ''; position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #ef4444; }
+        @media (max-width: 480px) {
+            #aim-btn { right: 16px; }
+            #fire-btn { right: 92px; }
+        }
         /* Barre d'outils (hotbar) */
         #hotbar { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); display: none; gap: 8px; z-index: 20; pointer-events: auto; }
         #hotbar .slot { position: relative; width: 64px; height: 64px; border-radius: 14px; background: rgba(15,23,42,0.82); border: 2px solid rgba(255,255,255,0.25); color: #fff; font-size: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; touch-action: none; transition: transform .1s, border-color .1s; }
@@ -302,7 +315,17 @@
             <i class="fa-solid fa-rocket"></i>
             <span class="name">Roquette</span>
         </button>
+        <button id="slot-2" class="slot" onclick="toggleSniper()" title="Sniper (touche 2)">
+            <span class="key">2</span>
+            <i class="fa-solid fa-crosshairs"></i>
+            <span class="name">Sniper</span>
+        </button>
     </div>
+
+    <!-- Sniper : viseur + boutons Viser / Tirer -->
+    <div id="crosshair"></div>
+    <button id="aim-btn" class="act-btn interactive" onclick="toggleAim()"><i class="fa-solid fa-bullseye"></i><span>Viser</span></button>
+    <button id="fire-btn" class="act-btn interactive" onclick="sniperFireBtn()"><i class="fa-solid fa-bolt"></i><span>Tirer</span></button>
 
     <!-- Fenêtre Amis -->
     <div id="friends-modal" class="interactive fixed inset-0 bg-slate-950/80 backdrop-blur-md items-center justify-center p-4" style="display:none; z-index:70">
@@ -489,6 +512,7 @@
             document.getElementById('hp-wrap').style.display = 'none';
             document.getElementById('st-back').style.display = 'none';
             stopScripts(); customRT = null; ed.test = false;
+            setSniperEquipped(false);
             const m = document.getElementById('menu-overlay');
             m.style.display = 'flex';
             requestAnimationFrame(() => { m.style.opacity = '1'; m.style.pointerEvents = 'auto'; });
@@ -751,6 +775,7 @@
             window.addEventListener('keydown', (e) => {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                 if (e.code === 'Digit1' && !inMenu) toggleRocket();
+                if (e.code === 'Digit2' && !inMenu) toggleSniper();
                 if (ed.active && (e.code === 'Delete' || e.code === 'Backspace')) studioDelete();
                 if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.forward = true;
                 if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.backward = true;
@@ -1060,6 +1085,13 @@
                 const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
                 if (dir.lengthSq() > 0.5) spawnRocket(new THREE.Vector3(d.x, d.y, d.z), dir.normalize(), fid);
             }
+            else if (d.t === 'snipe' && (d.m || 'map1') === currentMap && [d.x, d.y, d.z, d.dx, d.dy, d.dz].every(Number.isFinite)) {
+                const nowS = performance.now();
+                if (nowS - (lastSnipeIn[fid] || 0) < 500) return; // anti-spam
+                lastSnipeIn[fid] = nowS;
+                const dir = new THREE.Vector3(d.dx, d.dy, d.dz);
+                if (dir.lengthSq() > 0.5) sniperBullet(new THREE.Vector3(d.x, d.y, d.z), dir.normalize(), fid);
+            }
             else if (d.t === 'dead') { removeRemote(fid); if (d.by === myId) toast("Tu as éliminé " + fid + " !"); }
             else if (d.t === 'getgame') {
                 const g = typeof d.key === 'string' ? customGames[d.key] : null;
@@ -1248,15 +1280,98 @@
         // ================= LANCE-ROQUETTES =================
         const ROCKET_SPEED = 30;      // unités par seconde
         const ROCKET_COOLDOWN = 600;  // ms entre deux tirs
-        let rocketEquipped = false, lastShot = 0, lastTick = performance.now();
+        let rocketEquipped = false, lastShot = 0, lastTick = performance.now(), sniperEquipped = false, aiming = false;
         const rockets = [], explosions = [];
         let rocketAssets = null;
 
         function setRocketEquipped(v) {
             rocketEquipped = v;
+            if (v && sniperEquipped) setSniperEquipped(false); // une seule arme équipée à la fois
             document.getElementById('slot-1').classList.toggle('active', v);
         }
         function toggleRocket() { setRocketEquipped(!rocketEquipped); }
+
+        // ----- Sniper : bouton Viser (zoom + viseur) puis bouton Tirer ; sans viser, un clic/tap sur l'écran tire -----
+        const SNIPER_DAMAGE = 40;
+        const SNIPER_COOLDOWN = 1200; // ms entre deux tirs
+        const SNIPER_RANGE = 800;     // portée max (la balle est instantanée)
+        const tracers = [], lastSnipeIn = {};
+        let tracerGeo = null;
+        const weaponsOff = () => !!(customRT && !customRT.game.rockets); // jeux créés sans armes
+
+        function setSniperEquipped(v) {
+            sniperEquipped = v;
+            if (v && rocketEquipped) setRocketEquipped(false); // une seule arme équipée à la fois
+            document.getElementById('slot-2').classList.toggle('active', v);
+            updateWeaponUI();
+        }
+        function updateWeaponUI() {
+            const on = sniperEquipped && !inMenu && !weaponsOff();
+            document.getElementById('aim-btn').style.display = on ? 'flex' : 'none';
+            if (!on) setAiming(false);
+        }
+        function toggleSniper() { if (inMenu || weaponsOff()) return; setSniperEquipped(!sniperEquipped); }
+        function toggleAim() { setAiming(!aiming); }
+        function setAiming(v) {
+            if (v && !(sniperEquipped && !inMenu && !dead && !weaponsOff())) v = false;
+            const was = aiming;
+            aiming = v;
+            if (was !== v && player && !dead) player.visible = !v; // en visée on est à la première personne
+            document.getElementById('crosshair').style.display = v ? 'block' : 'none';
+            document.getElementById('fire-btn').style.display = v ? 'flex' : 'none';
+            const a = document.getElementById('aim-btn');
+            a.classList.toggle('on', v);
+            a.querySelector('span').textContent = v ? 'Annuler' : 'Viser';
+        }
+        function sniperFireBtn() { if (aiming) sniperShoot(window.innerWidth / 2, window.innerHeight / 2); }
+
+        function sniperShoot(cx, cy) {
+            if (inMenu || dead || !player || !worldReady || weaponsOff()) return;
+            const now = performance.now();
+            if (now - lastShot < SNIPER_COOLDOWN) return;
+            raycaster.setFromCamera(new THREE.Vector2(cx / window.innerWidth * 2 - 1, -(cy / window.innerHeight) * 2 + 1), camera);
+            raycaster.far = 1000;
+            const hits = raycaster.intersectObjects(solids, false);
+            const target = hits.length ? hits[0].point.clone() : raycaster.ray.at(300, new THREE.Vector3());
+            const origin = player.position.clone();
+            origin.y += aiming ? 1.6 : 1.3;
+            const dir = target.sub(origin);
+            if (dir.lengthSq() < 0.25) return;
+            dir.normalize();
+            lastShot = now;
+            player.rotation.y = Math.atan2(dir.x, dir.z);
+            sniperBullet(origin, dir, myId || 'me');
+            broadcast({ t: 'snipe', x: +origin.x.toFixed(2), y: +origin.y.toFixed(2), z: +origin.z.toFixed(2), dx: +dir.x.toFixed(4), dy: +dir.y.toFixed(4), dz: +dir.z.toFixed(4), m: currentMap });
+        }
+
+        // Balle instantanée : s'arrête au premier mur ; chaque client calcule SES propres dégâts (comme pour les roquettes)
+        function sniperBullet(origin, dir, owner) {
+            raycaster.set(origin, dir);
+            raycaster.far = SNIPER_RANGE;
+            const hit = raycaster.intersectObjects(solids, false);
+            const len = hit.length ? hit[0].distance : SNIPER_RANGE;
+            addTracer(origin, origin.clone().addScaledVector(dir, len));
+            if (owner !== (myId || 'me')) applySnipe(origin, dir, len, owner);
+        }
+        function applySnipe(origin, dir, len, owner) {
+            if (inMenu || !worldReady || !player || dead || performance.now() < invulnUntil) return;
+            for (const h of [0.4, 1.0, 1.5]) { // pieds / torse / tête
+                const p = new THREE.Vector3(player.position.x, player.position.y + h, player.position.z);
+                const t = Math.max(0, Math.min(len, p.clone().sub(origin).dot(dir)));
+                if (origin.clone().addScaledVector(dir, t).distanceTo(p) < 0.55) { hurt(SNIPER_DAMAGE, owner); return; }
+            }
+        }
+        function addTracer(a, b) {
+            const L = a.distanceTo(b);
+            if (L < 0.1) return;
+            if (!tracerGeo) tracerGeo = new THREE.CylinderGeometry(1, 1, 1, 6);
+            const m = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({ color: 0xfef08a, transparent: true, opacity: 0.9 }));
+            m.position.copy(a).add(b).multiplyScalar(0.5);
+            m.scale.set(0.06, L, 0.06);
+            m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+            scene.add(m);
+            tracers.push({ m, t: 0 });
+        }
 
         function setupFire() {
             // Un clic / une touche rapide (sans glisser) tire à cet endroit ; glisser fait tourner la caméra
@@ -1277,6 +1392,7 @@
 
         function fireAt(cx, cy) {
             if (customRT && !customRT.game.rockets) { customClick(cx, cy); return; }
+            if (sniperEquipped) { if (!aiming) sniperShoot(cx, cy); return; } // sniper : un clic tire, sauf en visée (bouton Tirer)
             if (!rocketEquipped || inMenu || dead || !player || !worldReady) return;
             const now = performance.now();
             if (now - lastShot < ROCKET_COOLDOWN) return;
@@ -1367,6 +1483,15 @@
                 e.a.material.opacity = 0.95 * (1 - k);
                 e.b.material.opacity = 0.5 * (1 - k);
             }
+            for (let i = tracers.length - 1; i >= 0; i--) {
+                const tr = tracers[i];
+                tr.t += dt;
+                if (tr.t >= 0.25) {
+                    scene.remove(tr.m);
+                    tr.m.material.dispose();
+                    tracers.splice(i, 1);
+                } else tr.m.material.opacity = 0.9 * (1 - tr.t / 0.25);
+            }
         }
 
         // ----- Dégâts, vie, élimination -----
@@ -1406,6 +1531,7 @@
         }
 
         function die(by) {
+            setAiming(false);
             dead = true;
             player.visible = false;
             const self = by === (myId || 'me');
@@ -1762,6 +1888,7 @@ send({ k: 'ready' });
             if (!g) return;
             stopScripts();
             customRT = null;
+            setSniperEquipped(false);
             broadcast({ t: 'state', ingame: false, map: currentMap });
             document.getElementById('hotbar').style.display = 'none';
             document.getElementById('hp-wrap').style.display = 'none';
@@ -2033,7 +2160,7 @@ send({ k: 'ready' });
         const SECRET_CODE = 'LARP666';   // code qui débloque le skin secret (visible dans le code source : ce n'est pas une vraie sécurité)
         const SKINS = [
             { id: 'skin0', name: 'Classique', file: 'player.glb',  icon: 'fa-user',           grad: 'from-slate-600 to-slate-500', facing: PLAYER_FACING_OFFSET },
-            { id: 'skin1', name: 'Skin 1',    file: 'player1.glb', icon: 'fa-user-astronaut', grad: 'from-sky-500 to-indigo-500',  facing: 0, scale: 0.02 },
+            { id: 'skin1', name: 'Skin 1',    file: 'player1.glb', icon: 'fa-user-astronaut', grad: 'from-sky-500 to-indigo-500',  facing: 0, scale: 0.01 },
             { id: 'skin2', name: 'Skin 2',    file: 'player2.glb', icon: 'fa-user-ninja',     grad: 'from-emerald-500 to-teal-500', facing: 0 },
             { id: 'skin3', name: 'Secret',    file: 'player3.glb', icon: 'fa-user-secret',    grad: 'from-pink-600 to-red-600',    facing: 0, scale: 1, locked: true }
         ];
@@ -2156,6 +2283,12 @@ send({ k: 'ready' });
         // Boucle d'animation principale
         function animate() {
             requestAnimationFrame(animate);
+            // Zoom du sniper (fluide) : 22° en visée, 60° sinon
+            const tFov = aiming ? 22 : 60;
+            if (camera.fov !== tFov) {
+                camera.fov = Math.abs(camera.fov - tFov) < 0.1 ? tFov : camera.fov + (tFov - camera.fov) * 0.25;
+                camera.updateProjectionMatrix();
+            }
             if (ed.active) { studioTick(); renderer.render(scene, camera); return; }
 
             if (player && worldReady) {
@@ -2219,8 +2352,16 @@ send({ k: 'ready' });
                 const camY = player.position.y + cameraDistance * Math.sin(cameraAngleY);
                 const camZ = player.position.z + cameraDistance * Math.cos(cameraAngleX) * Math.cos(cameraAngleY);
 
-                camera.position.set(camX, camY, camZ);
-                camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+                if (aiming) {
+                    // Vue du sniper : caméra à hauteur des yeux, on regarde dans la direction de la souris / du doigt
+                    const pitch = 0.5 - cameraAngleY;
+                    const ex = player.position.x, ey = player.position.y + 1.6, ez = player.position.z;
+                    camera.position.set(ex, ey, ez);
+                    camera.lookAt(ex - Math.sin(cameraAngleX) * Math.cos(pitch), ey + Math.sin(pitch), ez - Math.cos(cameraAngleX) * Math.cos(pitch));
+                } else {
+                    camera.position.set(camX, camY, camZ);
+                    camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+                }
             }
 
             networkTick();
